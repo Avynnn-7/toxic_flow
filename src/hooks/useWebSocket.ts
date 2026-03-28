@@ -15,7 +15,9 @@ import type { ToxicFlowData } from '../types/toxic';
 function getWsUrl(): string {
   if (import.meta.env.VITE_WS_URL) return import.meta.env.VITE_WS_URL;
   const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  return `${proto}//${window.location.host}/ws`;
+  // CF Workers handle WebSocket at root; Node.js server uses /ws
+  const path = window.location.hostname === 'localhost' ? '/ws' : '';
+  return `${proto}//${window.location.host}${path}`;
 }
 
 const HTTP_POLL_MS = 1500;
@@ -43,6 +45,10 @@ export function useWebSocket(onData: DataCallback) {
   const subscribedSymbols = useRef<Map<string, string>>(new Map()); // symbol -> exchange
   const onDataRef = useRef(onData);
   onDataRef.current = onData;
+
+  // Client-driven WebSocket polling (for CF Workers which can't run server-side intervals)
+  const wsPollTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const WS_POLL_MS = 500; // 500ms = 2 updates/sec over WebSocket
 
   // HTTP polling fallback state
   const pollIntervals = useRef<Map<string, ReturnType<typeof setInterval>>>(new Map());
@@ -104,6 +110,14 @@ export function useWebSocket(onData: DataCallback) {
           );
           ws.send(JSON.stringify({ type: 'subscribe', symbols }));
         }
+
+        // Start client-driven polling (CF Workers need client to trigger fetches)
+        if (wsPollTimer.current) clearInterval(wsPollTimer.current);
+        wsPollTimer.current = setInterval(() => {
+          if (ws.readyState === WebSocket.OPEN && subscribedSymbols.current.size > 0) {
+            ws.send(JSON.stringify({ type: 'poll' }));
+          }
+        }, WS_POLL_MS);
       };
 
       ws.onmessage = (event) => {
@@ -119,6 +133,8 @@ export function useWebSocket(onData: DataCallback) {
       ws.onclose = () => {
         console.log('[WS] Disconnected');
         setState(s => ({ ...s, connected: false }));
+        // Stop client-driven polling
+        if (wsPollTimer.current) { clearInterval(wsPollTimer.current); wsPollTimer.current = null; }
 
         if (reconnectAttempts.current < maxReconnect) {
           const delay = Math.min(1000 * Math.pow(2, reconnectAttempts.current), 8000);
@@ -188,6 +204,7 @@ export function useWebSocket(onData: DataCallback) {
     return () => {
       wsRef.current?.close();
       stopAllHttpPolls();
+      if (wsPollTimer.current) clearInterval(wsPollTimer.current);
     };
   }, [connect, stopAllHttpPolls]);
 

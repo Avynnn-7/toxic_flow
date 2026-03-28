@@ -11,6 +11,9 @@ dist/
 # Vercel
 .vercel/
 
+# Emscripten SDK (installed locally, ~2GB)
+emsdk_temp/
+
 # IDE
 .vscode/
 .idea/
@@ -24,5 +27,3 @@ Thumbs.db
 # Logs
 *.log
 npm-debug.log*
-
-.vercel

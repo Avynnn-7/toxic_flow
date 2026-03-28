@@ -1,6 +1,6 @@
 import { useState, useCallback, useMemo } from 'react';
 import { motion } from 'framer-motion';
-import { Activity, Zap, Clock, Shield, WifiOff, Radio, Globe } from 'lucide-react';
+import { Activity, Zap, Clock, Shield, WifiOff, Radio, Globe, BookOpen, Cpu } from 'lucide-react';
 import { useWebSocket } from './hooks/useWebSocket';
 import type { ToxicFlowData } from './types/toxic';
 
@@ -22,32 +22,28 @@ const DEFAULT_SYMBOLS = [
 ];
 
 export default function App() {
-  // ── State ─────────────────────────────────────────────────────────────
-  const [symbolData, setSymbolData] = useState<Map<string, ToxicFlowData | null>>(
-    () => new Map(DEFAULT_SYMBOLS.map(s => [`${s.symbol}:${s.exchange}`, null]))
-  );
-  const [selectedKey, setSelectedKey] = useState(`${DEFAULT_SYMBOLS[0].symbol}:${DEFAULT_SYMBOLS[0].exchange}`);
+  // ── State ──────────────────────────────────────────────────────────────
+  const [symbols, setSymbols] = useState(DEFAULT_SYMBOLS);
+  const [symbolData, setSymbolData] = useState<Map<string, ToxicFlowData>>(new Map());
+  const [activeSymbol, setActiveSymbol] = useState(DEFAULT_SYMBOLS[0].symbol);
+  const [activeExchange, setActiveExchange] = useState(DEFAULT_SYMBOLS[0].exchange);
+  const [beginnerMode, setBeginnerMode] = useState(false);
 
-  // ── WebSocket ─────────────────────────────────────────────────────────
+  // ── WebSocket ──────────────────────────────────────────────────────────
   const handleData = useCallback((symbol: string, data: ToxicFlowData) => {
     setSymbolData(prev => {
       const next = new Map(prev);
-      // Find the key that matches this symbol
-      for (const key of next.keys()) {
-        if (key.startsWith(`${symbol}:`)) {
-          next.set(key, data);
-          return next;
-        }
-      }
+      // Find matching exchange
+      const exchange = data.exchange || 'NSE_EQ';
+      next.set(`${symbol}:${exchange}`, data);
       return next;
     });
   }, []);
 
   const { connected, transport, latency, subscribe, unsubscribe } = useWebSocket(handleData);
 
-  // ── Auto-subscribe on mount ───────────────────────────────────────────
+  // Auto-subscribe on mount
   useState(() => {
-    // This runs once on mount
     setTimeout(() => {
       for (const s of DEFAULT_SYMBOLS) {
         subscribe(s.symbol, s.exchange);
@@ -55,43 +51,50 @@ export default function App() {
     }, 500);
   });
 
-  // ── Handlers ──────────────────────────────────────────────────────────
+  // ── Handlers ───────────────────────────────────────────────────────────
   const handleSelect = useCallback((symbol: string, exchange: string) => {
-    setSelectedKey(`${symbol}:${exchange}`);
+    setActiveSymbol(symbol);
+    setActiveExchange(exchange);
   }, []);
 
   const handleAdd = useCallback((symbol: string, exchange: string) => {
-    const key = `${symbol}:${exchange}`;
-    setSymbolData(prev => {
-      if (prev.has(key)) return prev;
-      const next = new Map(prev);
-      next.set(key, null);
-      return next;
+    setSymbols(prev => {
+      if (prev.some(s => s.symbol === symbol && s.exchange === exchange)) return prev;
+      return [...prev, { symbol, exchange }];
     });
     subscribe(symbol, exchange);
-    setSelectedKey(key);
+    setActiveSymbol(symbol);
+    setActiveExchange(exchange);
   }, [subscribe]);
 
-  const handleRemove = useCallback((symbol: string, exchange: string) => {
-    const key = `${symbol}:${exchange}`;
-    unsubscribe(symbol, exchange);
+  const handleRemove = useCallback((symbol: string) => {
+    const sym = symbols.find(s => s.symbol === symbol);
+    if (!sym) return;
+    unsubscribe(symbol, sym.exchange);
+    setSymbols(prev => prev.filter(s => s.symbol !== symbol));
     setSymbolData(prev => {
       const next = new Map(prev);
-      next.delete(key);
+      next.delete(`${symbol}:${sym.exchange}`);
       return next;
     });
-    // If removed the selected one, select first available
-    if (selectedKey === key) {
-      const keys = [...symbolData.keys()].filter(k => k !== key);
-      if (keys.length > 0) setSelectedKey(keys[0]);
+    if (activeSymbol === symbol) {
+      const remaining = symbols.filter(s => s.symbol !== symbol);
+      if (remaining.length > 0) {
+        setActiveSymbol(remaining[0].symbol);
+        setActiveExchange(remaining[0].exchange);
+      }
     }
-  }, [unsubscribe, selectedKey, symbolData]);
+  }, [symbols, unsubscribe, activeSymbol]);
 
-  // ── Selected data ─────────────────────────────────────────────────────
-  const selectedData = useMemo(() => symbolData.get(selectedKey) || null, [symbolData, selectedKey]);
-  const selectedSymbol = selectedKey.split(':')[0];
+  // ── Selected data ──────────────────────────────────────────────────────
+  const selectedKey = `${activeSymbol}:${activeExchange}`;
+  const selectedData = symbolData.get(selectedKey) || null;
 
-  // ── Active symbols count ──────────────────────────────────────────────
+  // Engine type from data
+  const engineType = (selectedData as any)?.engine || 'unknown';
+  const isCppWasm = engineType === 'cpp-wasm';
+
+  // Active count
   const activeCount = useMemo(() => {
     let count = 0;
     for (const d of symbolData.values()) if (d) count++;
@@ -103,8 +106,10 @@ export default function App() {
       {/* ── Sidebar ──────────────────────────────────────────────────────── */}
       <aside className="sidebar">
         <WatchList
-          symbols={symbolData}
-          selectedSymbol={selectedSymbol}
+          symbols={symbols}
+          activeSymbol={activeSymbol}
+          activeExchange={activeExchange}
+          symbolData={symbolData}
           onSelect={handleSelect}
           onAdd={handleAdd}
           onRemove={handleRemove}
@@ -122,12 +127,31 @@ export default function App() {
             <div>
               <h1 className="header-title">Toxic Flow Detector</h1>
               <p className="header-subtitle">
-                Volume-synchronized stochastic analysis • {symbolData.size} symbols tracked
+                {beginnerMode
+                  ? 'Real-time stock safety scanner • Analyzing market health'
+                  : 'C++ WASM stochastic engine • O(1) per-tick analysis'}
               </p>
             </div>
           </div>
 
           <div className="header-right">
+            {/* Beginner Mode Toggle */}
+            <div
+              className={`beginner-toggle ${beginnerMode ? 'active' : ''}`}
+              onClick={() => setBeginnerMode(!beginnerMode)}
+              title={beginnerMode ? 'Switch to Expert Mode' : 'Switch to Beginner Mode'}
+            >
+              <BookOpen size={12} />
+              <span>{beginnerMode ? 'Beginner' : 'Expert'}</span>
+              <div className={`toggle-switch ${beginnerMode ? 'active' : ''}`} />
+            </div>
+
+            {/* Engine Badge */}
+            <div className={`engine-badge ${isCppWasm ? 'wasm' : 'js'}`}>
+              <Cpu size={10} />
+              {isCppWasm ? 'C++ WASM' : 'JS O(1)'}
+            </div>
+
             {/* Connection Status */}
             <div className="status-chip">
               {connected ? (
@@ -161,7 +185,7 @@ export default function App() {
                 </div>
                 <div className="status-chip">
                   <Activity size={12} />
-                  <span className="font-mono">{activeCount}/{symbolData.size}</span>
+                  <span className="font-mono">{activeCount}/{symbols.length}</span>
                 </div>
               </>
             )}
@@ -174,13 +198,15 @@ export default function App() {
             <div className="empty-icon-pulse">
               <Shield size={40} />
             </div>
-            <h2>Connecting to {selectedSymbol}...</h2>
+            <h2>
+              {beginnerMode ? `Checking ${activeSymbol}...` : `Connecting to ${activeSymbol}...`}
+            </h2>
             <p>
               {connected
-                ? 'Waiting for first data update'
+                ? beginnerMode ? 'Getting the latest market data for you' : 'Waiting for first data update'
                 : transport === 'http-poll'
                   ? 'Using HTTP polling fallback'
-                  : 'Establishing WebSocket connection'}
+                  : beginnerMode ? 'Connecting to live market data' : 'Establishing WebSocket connection'}
             </p>
             <div className="loading-bar">
               <div className="loading-bar-fill" />
@@ -217,7 +243,7 @@ export default function App() {
                   {/* Bar progress */}
                   <div className="bar-progress-section">
                     <div className="bar-progress-header">
-                      <span>Volume bar progress</span>
+                      <span>{beginnerMode ? 'Analysis progress' : 'Volume bar progress'}</span>
                       <span className="font-mono">{Math.round(selectedData.barProgress * 100)}%</span>
                     </div>
                     <div className="bar-progress">
@@ -235,31 +261,38 @@ export default function App() {
                   recommendation={selectedData.recommendation}
                   ltp={selectedData.ltp}
                   volume={selectedData.volume}
-                  symbol={selectedData.symbol}
+                  symbol={activeSymbol}
                 />
 
                 {/* Spread */}
                 <div className="card">
                   <div className="card-header">
-                    <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>Spread & Depth</span>
+                    <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>
+                      {beginnerMode ? 'Trading Cost & Liquidity' : 'Spread & Depth'}
+                    </span>
                   </div>
                   <div className="spread-grid">
                     <div className="metric-card">
-                      <div className="metric-label">Spread</div>
+                      <div className="metric-label">{beginnerMode ? 'Trading Cost' : 'Spread'}</div>
                       <div className="metric-value font-mono" style={{ color: selectedData.spread.spreadBps > 20 ? 'var(--danger)' : 'var(--safe)' }}>
                         {selectedData.spread.spreadBps.toFixed(1)} bps
                       </div>
+                      {beginnerMode && (
+                        <div className="metric-sub">
+                          {selectedData.spread.spreadBps < 5 ? 'Very cheap to trade' : selectedData.spread.spreadBps < 15 ? 'Normal cost' : 'Expensive — wide gap'}
+                        </div>
+                      )}
                     </div>
                     <div className="metric-card">
                       <div className="metric-label">Mid Price</div>
                       <div className="metric-value font-mono">₹{selectedData.spread.mid.toFixed(2)}</div>
                     </div>
                     <div className="metric-card">
-                      <div className="metric-label">Bid Depth</div>
+                      <div className="metric-label">{beginnerMode ? 'Buyers queued' : 'Bid Depth'}</div>
                       <div className="metric-value font-mono" style={{ color: 'var(--buy-color)' }}>₹{(selectedData.spread.bidDepth / 1e6).toFixed(1)}M</div>
                     </div>
                     <div className="metric-card">
-                      <div className="metric-label">Ask Depth</div>
+                      <div className="metric-label">{beginnerMode ? 'Sellers queued' : 'Ask Depth'}</div>
                       <div className="metric-value font-mono" style={{ color: 'var(--sell-color)' }}>₹{(selectedData.spread.askDepth / 1e6).toFixed(1)}M</div>
                     </div>
                   </div>
@@ -268,7 +301,7 @@ export default function App() {
 
               {/* ── Right Column ────────────────────────────────────────────── */}
               <div className="detail-right">
-                <MetricsGrid data={selectedData} />
+                <MetricsGrid data={selectedData} beginnerMode={beginnerMode} />
 
                 <div className="charts-row">
                   <VolumeBarChart bars={selectedData.volumeBars} />
@@ -285,7 +318,8 @@ export default function App() {
                   <span>
                     {connected ? '🟢' : '🟡'} {transport === 'websocket' ? 'WebSocket' : 'HTTP Poll'} •
                     Updates: {selectedData.updateCount} •
-                    Engine: {selectedData.computeTimeMs}ms
+                    Engine: {isCppWasm ? '⚡ C++ WASM' : 'JS'} {selectedData.computeTimeMs}ms •
+                    Transport: {(selectedData as any)?.transport || transport}
                   </span>
                   <span>{selectedData.timestamp}</span>
                 </div>

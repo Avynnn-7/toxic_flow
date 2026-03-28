@@ -1,6 +1,6 @@
 /**
- * Upstox API client for Toxic Flow serverless functions.
- * Supports ALL stocks via dynamic instrument search.
+ * Upstox API client for Toxic Flow.
+ * Supports ALL stocks (NSE + BSE) via dynamic instrument search.
  * Token never exposed to frontend — server-side only.
  */
 
@@ -10,6 +10,7 @@ const INDEX_INSTRUMENTS = {
   'FINNIFTY':   'NSE_INDEX|Nifty Fin Service',
   'MIDCPNIFTY': 'NSE_INDEX|NIFTY MID SELECT',
   'SENSEX':     'BSE_INDEX|SENSEX',
+  'BANKEX':     'BSE_INDEX|BANKEX',
 };
 
 async function upstoxFetch(endpoint, token, version = 'v2') {
@@ -27,6 +28,7 @@ async function upstoxFetch(endpoint, token, version = 'v2') {
 
 /**
  * Dynamically resolve any symbol to its Upstox instrument_key.
+ * Supports both NSE and BSE exchanges.
  */
 export async function resolveInstrumentKey(symbol, exchange, token) {
   if (exchange === 'NSE_INDEX' || exchange === 'BSE_INDEX') {
@@ -53,19 +55,27 @@ export async function resolveInstrumentKey(symbol, exchange, token) {
 
 /**
  * Search instruments — for autocomplete.
+ * Supports filtering by exchange (NSE, BSE, or both).
  */
-export async function searchInstruments(query, token) {
+export async function searchInstruments(query, token, exchangeFilter) {
   if (!query || query.length < 1) return [];
   try {
-    const data = await upstoxFetch(
-      `/instruments/search?query=${encodeURIComponent(query)}&segments=EQ&records=12`,
-      token
-    );
+    // Build search URL with optional exchange filter
+    let searchParams = `query=${encodeURIComponent(query)}&segments=EQ&records=15`;
+    if (exchangeFilter === 'NSE' || exchangeFilter === 'NSE_EQ') {
+      searchParams += '&exchanges=NSE';
+    } else if (exchangeFilter === 'BSE' || exchangeFilter === 'BSE_EQ') {
+      searchParams += '&exchanges=BSE';
+    }
+    // If no filter, search both exchanges
+
+    const data = await upstoxFetch(`/instruments/search?${searchParams}`, token);
     return (data?.data || []).map(r => ({
       symbol: r.trading_symbol,
       name: r.name,
-      exchange: r.segment,
+      exchange: r.segment || r.exchange || 'NSE_EQ',
       instrumentKey: r.instrument_key,
+      instrumentType: r.instrument_type || 'EQ',
     }));
   } catch {
     return [];
@@ -73,8 +83,7 @@ export async function searchInstruments(query, token) {
 }
 
 /**
- * Fetch live quote with full depth (bid/ask levels).
- * Returns: { ltp, open, high, low, close, volume, oi, depth, timestamp }
+ * Fetch live quote with full depth.
  */
 export async function fetchQuoteWithDepth(instrumentKey, token) {
   const data = await upstoxFetch(
@@ -92,18 +101,12 @@ export async function fetchQuoteWithDepth(instrumentKey, token) {
     close: quote.ohlc?.close || 0,
     volume: quote.volume || 0,
     oi: quote.oi || 0,
-    upperCircuit: quote.upper_circuit_limit || 0,
-    lowerCircuit: quote.lower_circuit_limit || 0,
     depth: {
       buy: (quote.depth?.buy || []).map(l => ({
-        price: l.price || 0,
-        quantity: l.quantity || 0,
-        orders: l.orders || 0,
+        price: l.price || 0, quantity: l.quantity || 0, orders: l.orders || 0,
       })),
       sell: (quote.depth?.sell || []).map(l => ({
-        price: l.price || 0,
-        quantity: l.quantity || 0,
-        orders: l.orders || 0,
+        price: l.price || 0, quantity: l.quantity || 0, orders: l.orders || 0,
       })),
     },
     timestamp: new Date().toISOString(),
