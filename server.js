@@ -30,7 +30,7 @@ dotenv.config();
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3001;
 const UPSTOX_BASE = 'https://api.upstox.com/v2';
-const UPSTOX_WS_AUTH = 'https://api-v2.upstox.com/feed/market-data-feed/authorize';
+const UPSTOX_WS_AUTH = 'https://api.upstox.com/v3/feed/market-data-feed/authorize';
 const POLL_FALLBACK_MS = 500; // Fallback polling if WS fails
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -108,8 +108,8 @@ app.get('/api/toxic-flow', async (req, res) => {
   }
 });
 
-// SPA fallback
-app.get('/*', (_req, res) => {
+// SPA fallback (Express v5 named splat syntax)
+app.get('/{*splat}', (_req, res) => {
   res.sendFile(join(__dirname, 'dist', 'index.html'));
 });
 
