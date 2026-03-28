@@ -109,7 +109,7 @@ app.get('/api/toxic-flow', async (req, res) => {
 });
 
 // SPA fallback
-app.get('*', (_req, res) => {
+app.get('/*', (_req, res) => {
   res.sendFile(join(__dirname, 'dist', 'index.html'));
 });
 
