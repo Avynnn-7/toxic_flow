@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: toxic-flow-ws
+    runtime: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: node server.js
+    envVars:
+      - key: UPSTOX_ACCESS_TOKEN
+        sync: false
+      - key: NODE_ENV
+        value: production

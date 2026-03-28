@@ -1,8 +1,10 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { motion } from 'framer-motion';
-import { Activity, Zap, Clock, BarChart2, Shield } from 'lucide-react';
-import { useToxicFlow } from './hooks/useToxicFlow';
-import SymbolSearch from './components/SymbolSearch';
+import { Activity, Zap, Clock, Shield, WifiOff, Radio, Globe } from 'lucide-react';
+import { useWebSocket } from './hooks/useWebSocket';
+import type { ToxicFlowData } from './types/toxic';
+
+import WatchList from './components/WatchList';
 import ToxicMeter from './components/ToxicMeter';
 import MetricsGrid from './components/MetricsGrid';
 import VolumeBarChart from './components/VolumeBarChart';
@@ -11,224 +13,287 @@ import VPINGauge from './components/VPINGauge';
 import CrashRiskPanel from './components/CrashRiskPanel';
 import RecommendationCard from './components/RecommendationCard';
 
+const DEFAULT_SYMBOLS = [
+  { symbol: 'RELIANCE', exchange: 'NSE_EQ' },
+  { symbol: 'TCS', exchange: 'NSE_EQ' },
+  { symbol: 'INFY', exchange: 'NSE_EQ' },
+  { symbol: 'HDFCBANK', exchange: 'NSE_EQ' },
+  { symbol: 'SBIN', exchange: 'NSE_EQ' },
+];
+
 export default function App() {
-  const [symbol, setSymbol] = useState('RELIANCE');
-  const [exchange, setExchange] = useState('NSE_EQ');
+  // ── State ─────────────────────────────────────────────────────────────
+  const [symbolData, setSymbolData] = useState<Map<string, ToxicFlowData | null>>(
+    () => new Map(DEFAULT_SYMBOLS.map(s => [`${s.symbol}:${s.exchange}`, null]))
+  );
+  const [selectedKey, setSelectedKey] = useState(`${DEFAULT_SYMBOLS[0].symbol}:${DEFAULT_SYMBOLS[0].exchange}`);
 
-  const { data, error, loading, latency } = useToxicFlow({
-    symbol,
-    exchange,
-    enabled: !!symbol,
-  });
-
-  const handleSelectSymbol = useCallback((sym: string, exch: string) => {
-    setSymbol(sym);
-    setExchange(exch);
+  // ── WebSocket ─────────────────────────────────────────────────────────
+  const handleData = useCallback((symbol: string, data: ToxicFlowData) => {
+    setSymbolData(prev => {
+      const next = new Map(prev);
+      // Find the key that matches this symbol
+      for (const key of next.keys()) {
+        if (key.startsWith(`${symbol}:`)) {
+          next.set(key, data);
+          return next;
+        }
+      }
+      return next;
+    });
   }, []);
 
+  const { connected, transport, latency, subscribe, unsubscribe } = useWebSocket(handleData);
+
+  // ── Auto-subscribe on mount ───────────────────────────────────────────
+  useState(() => {
+    // This runs once on mount
+    setTimeout(() => {
+      for (const s of DEFAULT_SYMBOLS) {
+        subscribe(s.symbol, s.exchange);
+      }
+    }, 500);
+  });
+
+  // ── Handlers ──────────────────────────────────────────────────────────
+  const handleSelect = useCallback((symbol: string, exchange: string) => {
+    setSelectedKey(`${symbol}:${exchange}`);
+  }, []);
+
+  const handleAdd = useCallback((symbol: string, exchange: string) => {
+    const key = `${symbol}:${exchange}`;
+    setSymbolData(prev => {
+      if (prev.has(key)) return prev;
+      const next = new Map(prev);
+      next.set(key, null);
+      return next;
+    });
+    subscribe(symbol, exchange);
+    setSelectedKey(key);
+  }, [subscribe]);
+
+  const handleRemove = useCallback((symbol: string, exchange: string) => {
+    const key = `${symbol}:${exchange}`;
+    unsubscribe(symbol, exchange);
+    setSymbolData(prev => {
+      const next = new Map(prev);
+      next.delete(key);
+      return next;
+    });
+    // If removed the selected one, select first available
+    if (selectedKey === key) {
+      const keys = [...symbolData.keys()].filter(k => k !== key);
+      if (keys.length > 0) setSelectedKey(keys[0]);
+    }
+  }, [unsubscribe, selectedKey, symbolData]);
+
+  // ── Selected data ─────────────────────────────────────────────────────
+  const selectedData = useMemo(() => symbolData.get(selectedKey) || null, [symbolData, selectedKey]);
+  const selectedSymbol = selectedKey.split(':')[0];
+
+  // ── Active symbols count ──────────────────────────────────────────────
+  const activeCount = useMemo(() => {
+    let count = 0;
+    for (const d of symbolData.values()) if (d) count++;
+    return count;
+  }, [symbolData]);
+
   return (
-    <div className="dashboard">
-      {/* ── Header ──────────────────────────────────────────────────────────── */}
-      <div className="dashboard-header">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          <div style={{
-            width: 40, height: 40, borderRadius: 12,
-            background: 'linear-gradient(135deg, #a855f7 0%, #3b82f6 100%)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-          }}>
-            <Shield size={22} color="white" />
+    <div className="app-container">
+      {/* ── Sidebar ──────────────────────────────────────────────────────── */}
+      <aside className="sidebar">
+        <WatchList
+          symbols={symbolData}
+          selectedSymbol={selectedSymbol}
+          onSelect={handleSelect}
+          onAdd={handleAdd}
+          onRemove={handleRemove}
+        />
+      </aside>
+
+      {/* ── Main Content ─────────────────────────────────────────────────── */}
+      <main className="main-content">
+        {/* Header */}
+        <header className="main-header">
+          <div className="header-left">
+            <div className="header-logo">
+              <Shield size={22} color="white" />
+            </div>
+            <div>
+              <h1 className="header-title">Toxic Flow Detector</h1>
+              <p className="header-subtitle">
+                Volume-synchronized stochastic analysis • {symbolData.size} symbols tracked
+              </p>
+            </div>
           </div>
-          <div>
-            <h1 style={{ fontSize: '1.2rem', fontWeight: 800, letterSpacing: '-0.03em' }}>
-              Toxic Flow Detector
-            </h1>
-            <p style={{ fontSize: '0.7rem', color: 'var(--text-tertiary)', marginTop: 2 }}>
-              Real-time market microstructure analysis • Stochastic calculus models
+
+          <div className="header-right">
+            {/* Connection Status */}
+            <div className="status-chip">
+              {connected ? (
+                <>
+                  <div className="live-dot" />
+                  <Radio size={12} />
+                  <span className="font-mono" style={{ color: 'var(--safe)' }}>WS LIVE</span>
+                </>
+              ) : transport === 'http-poll' ? (
+                <>
+                  <Globe size={12} style={{ color: 'var(--caution)' }} />
+                  <span className="font-mono" style={{ color: 'var(--caution)' }}>HTTP POLL</span>
+                </>
+              ) : (
+                <>
+                  <WifiOff size={12} style={{ color: 'var(--danger)' }} />
+                  <span className="font-mono" style={{ color: 'var(--danger)' }}>OFFLINE</span>
+                </>
+              )}
+            </div>
+
+            {selectedData && (
+              <>
+                <div className="status-chip">
+                  <Clock size={12} />
+                  <span className="font-mono">{latency}ms</span>
+                </div>
+                <div className="status-chip">
+                  <Zap size={12} style={{ color: 'var(--safe)' }} />
+                  <span className="font-mono">{selectedData.computeTimeMs}ms</span>
+                </div>
+                <div className="status-chip">
+                  <Activity size={12} />
+                  <span className="font-mono">{activeCount}/{symbolData.size}</span>
+                </div>
+              </>
+            )}
+          </div>
+        </header>
+
+        {/* ── Content ───────────────────────────────────────────────────── */}
+        {!selectedData && (
+          <div className="empty-state-main">
+            <div className="empty-icon-pulse">
+              <Shield size={40} />
+            </div>
+            <h2>Connecting to {selectedSymbol}...</h2>
+            <p>
+              {connected
+                ? 'Waiting for first data update'
+                : transport === 'http-poll'
+                  ? 'Using HTTP polling fallback'
+                  : 'Establishing WebSocket connection'}
             </p>
-          </div>
-        </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-          <SymbolSearch onSelect={handleSelectSymbol} currentSymbol={symbol} />
-
-          {/* Live status */}
-          {data && (
-            <div className="status-row">
-              <div className="live-dot" />
-              <span className="font-mono">LIVE</span>
-              <span style={{ color: 'var(--text-tertiary)' }}>|</span>
-              <Clock size={12} />
-              <span className="font-mono">{latency}ms</span>
-              <span style={{ color: 'var(--text-tertiary)' }}>|</span>
-              <Zap size={12} style={{ color: 'var(--safe)' }} />
-              <span className="font-mono">{data.computeTimeMs}ms engine</span>
+            <div className="loading-bar">
+              <div className="loading-bar-fill" />
             </div>
-          )}
-        </div>
-      </div>
-
-      {/* ── Error State ─────────────────────────────────────────────────────── */}
-      {error && !data && (
-        <motion.div
-          className="card"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          style={{ padding: 24, textAlign: 'center', borderColor: 'rgba(255,170,0,0.2)' }}
-        >
-          <Activity size={32} style={{ color: 'var(--caution)', marginBottom: 12 }} />
-          <h3 style={{ color: 'var(--caution)', marginBottom: 8 }}>Connection Issue</h3>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', maxWidth: 500, margin: '0 auto' }}>
-            {error}
-          </p>
-          <p style={{ color: 'var(--text-tertiary)', fontSize: '0.75rem', marginTop: 12 }}>
-            Make sure the market is open (9:15 AM – 3:30 PM IST) and UPSTOX_ACCESS_TOKEN is set.
-          </p>
-        </motion.div>
-      )}
-
-      {/* ── Loading State ───────────────────────────────────────────────────── */}
-      {loading && !data && !error && (
-        <div className="loading-container">
-          <div className="loading-spinner" />
-          <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
-            Connecting to Upstox for <span className="font-mono" style={{ color: 'var(--accent-blue)' }}>{symbol}</span>...
-          </p>
-        </div>
-      )}
-
-      {/* ── Empty State ─────────────────────────────────────────────────────── */}
-      {!symbol && (
-        <div className="empty-state">
-          <div className="empty-icon">
-            <BarChart2 size={36} />
           </div>
-          <h3 style={{ color: 'var(--text-secondary)' }}>Search for a stock</h3>
-          <p style={{ color: 'var(--text-tertiary)', fontSize: '0.85rem' }}>
-            Enter any NSE or BSE stock symbol to start real-time toxic flow analysis.
-          </p>
-        </div>
-      )}
+        )}
 
-      {/* ── Main Dashboard ──────────────────────────────────────────────────── */}
-      {data && (
-        <motion.div
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4 }}
-        >
-          {/* Crash Risk Alert */}
-          <CrashRiskPanel
-            crashRisk={data.crashRisk}
-            toxicScore={data.toxicScore}
-            details={data.recommendation.details}
-          />
+        {selectedData && (
+          <motion.div
+            key={selectedKey}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.25 }}
+            className="detail-container"
+          >
+            {/* Crash Risk Alert */}
+            <CrashRiskPanel
+              crashRisk={selectedData.crashRisk}
+              toxicScore={selectedData.toxicScore}
+              details={selectedData.recommendation.details}
+            />
 
-          <div className="dashboard-grid" style={{ marginTop: data.crashRisk > 50 || data.toxicScore > 65 ? 24 : 0 }}>
-            {/* ── Left Panel: Gauge + Recommendation ─────────────────────────── */}
-            <div className="left-panel">
-              <div className="card">
-                <ToxicMeter
-                  score={data.toxicScore}
-                  label={data.recommendation.label}
-                  color={data.recommendation.color}
+            <div className="detail-grid">
+              {/* ── Left Column ─────────────────────────────────────────────── */}
+              <div className="detail-left">
+                {/* Gauge Card */}
+                <div className="card gauge-card">
+                  <ToxicMeter
+                    score={selectedData.toxicScore}
+                    label={selectedData.recommendation.label}
+                    color={selectedData.recommendation.color}
+                  />
+
+                  {/* Bar progress */}
+                  <div className="bar-progress-section">
+                    <div className="bar-progress-header">
+                      <span>Volume bar progress</span>
+                      <span className="font-mono">{Math.round(selectedData.barProgress * 100)}%</span>
+                    </div>
+                    <div className="bar-progress">
+                      <div className="bar-progress-fill" style={{ width: `${selectedData.barProgress * 100}%` }} />
+                    </div>
+                    <div className="bar-progress-footer">
+                      <span>{selectedData.totalBarsCompleted} bars</span>
+                      <span className="font-mono">{selectedData.volumeBarSize.toLocaleString()} shares/bar</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Recommendation */}
+                <RecommendationCard
+                  recommendation={selectedData.recommendation}
+                  ltp={selectedData.ltp}
+                  volume={selectedData.volume}
+                  symbol={selectedData.symbol}
                 />
-                {/* Volume bar progress */}
-                <div style={{ padding: '0 24px 16px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: 'var(--text-tertiary)' }}>
-                    <span>Volume bar progress</span>
-                    <span className="font-mono">{Math.round(data.barProgress * 100)}%</span>
+
+                {/* Spread */}
+                <div className="card">
+                  <div className="card-header">
+                    <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>Spread & Depth</span>
                   </div>
-                  <div className="bar-progress">
-                    <div className="bar-progress-fill" style={{ width: `${data.barProgress * 100}%` }} />
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.65rem', color: 'var(--text-tertiary)', marginTop: 4 }}>
-                    <span>{data.totalBarsCompleted} bars completed</span>
-                    <span className="font-mono">{data.volumeBarSize.toLocaleString()} shares/bar</span>
+                  <div className="spread-grid">
+                    <div className="metric-card">
+                      <div className="metric-label">Spread</div>
+                      <div className="metric-value font-mono" style={{ color: selectedData.spread.spreadBps > 20 ? 'var(--danger)' : 'var(--safe)' }}>
+                        {selectedData.spread.spreadBps.toFixed(1)} bps
+                      </div>
+                    </div>
+                    <div className="metric-card">
+                      <div className="metric-label">Mid Price</div>
+                      <div className="metric-value font-mono">₹{selectedData.spread.mid.toFixed(2)}</div>
+                    </div>
+                    <div className="metric-card">
+                      <div className="metric-label">Bid Depth</div>
+                      <div className="metric-value font-mono" style={{ color: 'var(--buy-color)' }}>₹{(selectedData.spread.bidDepth / 1e6).toFixed(1)}M</div>
+                    </div>
+                    <div className="metric-card">
+                      <div className="metric-label">Ask Depth</div>
+                      <div className="metric-value font-mono" style={{ color: 'var(--sell-color)' }}>₹{(selectedData.spread.askDepth / 1e6).toFixed(1)}M</div>
+                    </div>
                   </div>
                 </div>
               </div>
 
-              {/* Recommendation */}
-              <RecommendationCard
-                recommendation={data.recommendation}
-                ltp={data.ltp}
-                volume={data.volume}
-                symbol={data.symbol}
-              />
+              {/* ── Right Column ────────────────────────────────────────────── */}
+              <div className="detail-right">
+                <MetricsGrid data={selectedData} />
 
-              {/* Spread metrics */}
-              <div className="card">
-                <div className="card-header">
-                  <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>Spread Analysis</span>
+                <div className="charts-row">
+                  <VolumeBarChart bars={selectedData.volumeBars} />
+                  <OFIChart history={selectedData.ofiHistory} />
                 </div>
-                <div className="card-body" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                  <div className="metric-card">
-                    <div className="metric-label">Spread</div>
-                    <div className="metric-value font-mono" style={{ fontSize: '1rem', color: data.spread.spreadBps > 20 ? 'var(--danger)' : 'var(--safe)' }}>
-                      {data.spread.spreadBps.toFixed(1)} bps
-                    </div>
-                  </div>
-                  <div className="metric-card">
-                    <div className="metric-label">Mid Price</div>
-                    <div className="metric-value font-mono" style={{ fontSize: '1rem' }}>
-                      ₹{data.spread.mid.toFixed(2)}
-                    </div>
-                  </div>
-                  <div className="metric-card">
-                    <div className="metric-label">Bid Depth</div>
-                    <div className="metric-value font-mono" style={{ fontSize: '1rem', color: 'var(--buy-color)' }}>
-                      ₹{(data.spread.bidDepth / 1e6).toFixed(1)}M
-                    </div>
-                  </div>
-                  <div className="metric-card">
-                    <div className="metric-label">Ask Depth</div>
-                    <div className="metric-value font-mono" style={{ fontSize: '1rem', color: 'var(--sell-color)' }}>
-                      ₹{(data.spread.askDepth / 1e6).toFixed(1)}M
-                    </div>
-                  </div>
+
+                <VPINGauge
+                  vpinHistory={selectedData.scoreHistory.map(s => s / 100)}
+                  crashRiskHistory={selectedData.crashRiskHistory}
+                />
+
+                {/* Session Info Footer */}
+                <div className="session-footer">
+                  <span>
+                    {connected ? '🟢' : '🟡'} {transport === 'websocket' ? 'WebSocket' : 'HTTP Poll'} •
+                    Updates: {selectedData.updateCount} •
+                    Engine: {selectedData.computeTimeMs}ms
+                  </span>
+                  <span>{selectedData.timestamp}</span>
                 </div>
               </div>
             </div>
-
-            {/* ── Right Panel: Metrics + Charts ─────────────────────────────── */}
-            <div className="right-panel">
-              {/* Metrics Grid */}
-              <MetricsGrid data={data} />
-
-              {/* Charts */}
-              <div className="charts-row">
-                <VolumeBarChart bars={data.volumeBars} />
-                <OFIChart history={data.ofiHistory} />
-              </div>
-
-              {/* Score Timeline */}
-              <VPINGauge
-                vpinHistory={data.scoreHistory.map(s => s / 100)} 
-                crashRiskHistory={data.crashRiskHistory}
-              />
-
-              {/* Session info */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0 4px', fontSize: '0.65rem', color: 'var(--text-tertiary)' }}>
-                <span>Updates: {data.updateCount} • Engine: {data.computeTimeMs}ms • E2E: {data.totalLatencyMs}ms</span>
-                <span>{data.timestamp}</span>
-              </div>
-            </div>
-          </div>
-        </motion.div>
-      )}
-
-      {/* Footer */}
-      <footer style={{
-        textAlign: 'center',
-        padding: '24px 0',
-        fontSize: '0.7rem',
-        color: 'var(--text-tertiary)',
-        borderTop: '1px solid var(--border-subtle)',
-        marginTop: 16,
-      }}>
-        Toxic Flow Detector • Stochastic Calculus Models (VPIN · Kyle-λ · OFI · Hawkes · PIN) •
-        Volume-synchronized intervals • <strong style={{ color: 'var(--text-secondary)' }}>Not financial advice</strong>
-      </footer>
+          </motion.div>
+        )}
+      </main>
     </div>
   );
 }

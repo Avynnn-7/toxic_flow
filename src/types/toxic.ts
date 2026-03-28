@@ -1,43 +1,31 @@
 // ══════════════════════════════════════════════════════════════════════════════
-// Toxic Flow Detector — TypeScript Interfaces
+// Toxic Flow Data Model — TypeScript interfaces
 // ══════════════════════════════════════════════════════════════════════════════
 
-export interface DepthLevel {
-  price: number;
-  quantity: number;
-  orders: number;
-}
-
-export interface QuoteDepth {
-  buy: DepthLevel[];
-  sell: DepthLevel[];
-}
-
-export interface SpreadMetrics {
-  spread: number;
-  spreadBps: number;
-  mid: number;
-  depthImbalance: number;
-  bidDepth: number;
-  askDepth: number;
-}
-
 export interface VolumeBar {
+  barIndex: number;
   open: number;
   high: number;
   low: number;
   close: number;
   buyVol: number;
   sellVol: number;
+  totalVol: number;
   vpin: number;
-  barIndex: number;
 }
 
 export interface OFIPoint {
   normalized: number;
   bidQty: number;
   askQty: number;
-  timestamp: number;
+}
+
+export interface Spread {
+  spreadBps: number;
+  mid: number;
+  bidDepth: number;
+  askDepth: number;
+  depthImbalance: number;
 }
 
 export interface Recommendation {
@@ -53,6 +41,8 @@ export interface ToxicFlowData {
   success: boolean;
   symbol: string;
   exchange: string;
+  ltp: number;
+  volume: number;
 
   // Core metrics
   vpin: number;
@@ -62,39 +52,33 @@ export interface ToxicFlowData {
   hawkes: number;
   pin: number;
 
-  // Spread
-  spread: SpreadMetrics;
-
   // Scores
   toxicScore: number;
   crashRisk: number;
 
-  // Recommendation
-  recommendation: Recommendation;
+  // Spread
+  spread: Spread;
 
-  // Charts
+  // Volume bars
   volumeBars: VolumeBar[];
+  volumeBarSize: number;
+  barProgress: number;
+  totalBarsCompleted: number;
+
+  // History
   ofiHistory: OFIPoint[];
   scoreHistory: number[];
   crashRiskHistory: number[];
 
-  // Quote
-  ltp: number;
-  volume: number;
-
-  // Volume bar state
-  barProgress: number;
-  volumeBarSize: number;
-  totalBarsCompleted: number;
+  // Recommendation
+  recommendation: Recommendation;
 
   // Meta
-  updateCount: number;
   computeTimeMs: number;
   totalLatencyMs: number;
+  updateCount: number;
   timestamp: string;
-
-  // Error state
-  error?: string;
+  transport: 'websocket' | 'http-poll';
 }
 
 export interface SearchResult {
@@ -102,4 +86,5 @@ export interface SearchResult {
   name: string;
   exchange: string;
   instrumentKey: string;
+  instrumentType: string;
 }
