@@ -15,9 +15,7 @@ import type { ToxicFlowData } from '../types/toxic';
 function getWsUrl(): string {
   if (import.meta.env.VITE_WS_URL) return import.meta.env.VITE_WS_URL;
   const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  // CF Workers handle WebSocket at root; Node.js server uses /ws
-  const path = window.location.hostname === 'localhost' ? '/ws' : '';
-  return `${proto}//${window.location.host}${path}`;
+  return `${proto}//${window.location.host}/ws`;
 }
 
 const HTTP_POLL_MS = 1500;
