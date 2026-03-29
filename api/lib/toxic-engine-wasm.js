@@ -258,8 +258,15 @@ class JSFallbackEngine {
     // PIN
     this.pinSumBuy = 0; this.pinSumSell = 0; this.pinBarCount = 0; this.pinSig = 0;
 
-    // OFI
-    this.lastBidQty = 0; this.lastAskQty = 0;
+    // OFI — first tick is baseline, NOT a signal
+    this.lastBidQty = -1; this.lastAskQty = -1; // -1 = not initialized
+    this.ofiBaselineSet = false;
+
+    // Market state detection
+    this.lastVolume = -1;
+    this.volumeChanges = 0;  // how many ticks had real volume delta
+    this.priceChanges = 0;   // how many ticks had price movement
+    this.tickCount = 0;
 
     // History rings (for UI)
     this.volumeBars = [];
@@ -271,8 +278,15 @@ class JSFallbackEngine {
 
   process(quote) {
     const t0 = performance.now();
+    this.tickCount++;
 
-    // BVC
+    // ── Track market activity ──────────────────────────────────────
+    if (this.lastVolume >= 0 && quote.volume !== this.lastVolume) this.volumeChanges++;
+    if (this.lastQuote && quote.ltp !== this.lastQuote.ltp) this.priceChanges++;
+    this.lastVolume = quote.volume;
+    const marketActive = this.volumeChanges >= 2 || this.priceChanges >= 2;
+
+    // ── BVC (Bulk Volume Classification) ──────────────────────────
     let buyVol = 0, sellVol = 0;
     if (this.lastQuote) {
       const volDelta = Math.max(0, quote.volume - this.lastQuote.volume);
@@ -289,7 +303,7 @@ class JSFallbackEngine {
       }
     }
 
-    // Volume bars
+    // ── Volume bars ───────────────────────────────────────────────
     const total = buyVol + sellVol;
     if (this.barAcc.totalVol === 0) { this.barAcc.open = quote.ltp; this.barAcc.high = quote.ltp; this.barAcc.low = quote.ltp; }
     this.barAcc.high = Math.max(this.barAcc.high, quote.ltp);
@@ -330,18 +344,30 @@ class JSFallbackEngine {
 
     const vpin = this.ewmaVpin;
 
-    // OFI
+    // ── OFI ───────────────────────────────────────────────────────
+    // FIX: First tick sets the baseline. Don't count initial depth as a "change."
     let bidQty = 0, askQty = 0;
     (quote.depth?.buy || []).forEach(l => bidQty += l.quantity || 0);
     (quote.depth?.sell || []).forEach(l => askQty += l.quantity || 0);
-    const normOfi = (bidQty - this.lastBidQty - (askQty - this.lastAskQty)) / Math.max(bidQty + askQty, 1);
-    if (!this.ewmaOfiInit) { this.ewmaOfi = normOfi; this.ewmaOfiInit = true; }
-    else this.ewmaOfi = EWMA_OFI_A * normOfi + (1 - EWMA_OFI_A) * this.ewmaOfi;
-    this.lastBidQty = bidQty; this.lastAskQty = askQty;
+
+    let normOfi = 0;
+    if (!this.ofiBaselineSet) {
+      // First tick: just record baseline, OFI = 0
+      this.lastBidQty = bidQty;
+      this.lastAskQty = askQty;
+      this.ofiBaselineSet = true;
+      this.ewmaOfi = 0;
+      this.ewmaOfiInit = true;
+    } else {
+      normOfi = (bidQty - this.lastBidQty - (askQty - this.lastAskQty)) / Math.max(bidQty + askQty, 1);
+      this.ewmaOfi = EWMA_OFI_A * normOfi + (1 - EWMA_OFI_A) * this.ewmaOfi;
+      this.lastBidQty = bidQty;
+      this.lastAskQty = askQty;
+    }
     if (this.ofiHistory.length >= 200) this.ofiHistory.shift();
     this.ofiHistory.push({ normalized: normOfi, bidQty, askQty });
 
-    // Kyle's Lambda (Welford)
+    // ── Kyle's Lambda (Welford) ───────────────────────────────────
     let kyleLambda = 0;
     if (this.lastQuote) {
       const dp = quote.ltp - this.lastQuote.ltp;
@@ -358,7 +384,7 @@ class JSFallbackEngine {
       if (this.wN >= 5 && this.wM2x > 1e-10) kyleLambda = Math.abs(this.wCxy / this.wM2x);
     }
 
-    // Amihud
+    // ── Amihud ────────────────────────────────────────────────────
     let amihud = 0;
     if (this.lastQuote && this.lastQuote.ltp > 0) {
       const ret = Math.abs((quote.ltp - this.lastQuote.ltp) / this.lastQuote.ltp);
@@ -369,19 +395,22 @@ class JSFallbackEngine {
       amihud = this.ewmaAmihud;
     }
 
-    // Hawkes (recursive)
+    // ── Hawkes (recursive) ────────────────────────────────────────
+    // FIX: Ignore rapid duplicate API calls (dt < 200ms) — not real trades
     let hawkes = 0;
     const ts = Date.now();
     if (!this.hawkesInit) { this.hawkesIntensity = H_MU; this.hawkesLastTs = ts; this.hawkesInit = true; }
     else {
       const dt = Math.max(ts - this.hawkesLastTs, 1);
-      const decay = Math.exp(-H_BETA * dt);
-      this.hawkesIntensity = H_MU + decay * (this.hawkesIntensity - H_MU + H_ALPHA);
-      this.hawkesLastTs = ts;
+      if (dt >= 200) { // Only count if >= 200ms gap (real trade interval)
+        const decay = Math.exp(-H_BETA * dt);
+        this.hawkesIntensity = H_MU + decay * (this.hawkesIntensity - H_MU + H_ALPHA);
+        this.hawkesLastTs = ts;
+      }
       hawkes = clamp01((this.hawkesIntensity - H_MU) / (H_MU * 3));
     }
 
-    // PIN
+    // ── PIN ───────────────────────────────────────────────────────
     let pin = 0;
     if (this.pinBarCount >= 5) {
       const avgBuy = this.pinSumBuy * (1 - 0.95);
@@ -393,7 +422,7 @@ class JSFallbackEngine {
       pin = denom > 0 ? (alpha * mu) / denom : 0;
     }
 
-    // Spread
+    // ── Spread ────────────────────────────────────────────────────
     const bestBid = quote.depth?.buy?.[0]?.price || quote.ltp;
     const bestAsk = quote.depth?.sell?.[0]?.price || quote.ltp;
     const mid = (bestBid + bestAsk) / 2 || quote.ltp;
@@ -403,23 +432,35 @@ class JSFallbackEngine {
     (quote.depth?.sell || []).forEach(l => askDepth += (l.price || 0) * (l.quantity || 0));
     const depthImbalance = (bidDepth + askDepth > 0) ? (bidDepth - askDepth) / (bidDepth + askDepth) : 0;
 
-    // Toxic score (logistic fusion)
-    const v = clamp01(vpin / 0.6), o = clamp01(Math.abs(this.ewmaOfi) / 0.5), l = clamp01(kyleLambda / 5);
-    const a = clamp01(amihud / 100), h = clamp01(hawkes), p = clamp01(pin / 0.5), s = clamp01(spreadBps / 50);
-    const logit = -2.5 + 3.5*v + 2.8*o + 2.0*l + 1.5*a + 1.8*h + 1.5*p + 1.0*s;
-    const toxicScore = Math.min(100, Math.max(0, Math.round(100 / (1 + Math.exp(-logit)))));
+    // ── Toxic Score ──────────────────────────────────────────────
+    let toxicScore, crashRisk;
 
-    // Crash risk (histogram percentile)
-    let crashRisk = 0;
-    if (this.histTotal >= 5) {
-      const vpinIdx = Math.min(31, Math.max(0, Math.floor(vpin * 32)));
-      let below = 0; for (let i = 0; i < vpinIdx; i++) below += this.histBins[i];
-      below += this.histBins[vpinIdx] / 2;
-      const pct = below / this.histTotal;
-      const spreadSig = clamp01(spreadBps / 30);
-      const amihudSpike = this.ewmaAmihudInit && this.ewmaAmihud > 0 ? clamp01(amihud / (this.ewmaAmihud * 3)) : 0;
-      const cLogit = -2.0 + 4.0*pct + 2.5*spreadSig + 2.0*amihudSpike;
-      crashRisk = Math.min(100, Math.max(0, Math.round(100 / (1 + Math.exp(-cLogit)))));
+    if (!marketActive && this.tickCount < 5) {
+      // NOT ENOUGH DATA — be honest: we can't compute a real score
+      // Use only depth-based static analysis (spread + imbalance)
+      const depthScore = clamp01(Math.abs(depthImbalance)) * 30;
+      const spreadScore = clamp01(spreadBps / 30) * 20;
+      toxicScore = Math.round(depthScore + spreadScore);
+      crashRisk = 0; // Can't assess crash risk from a snapshot
+    } else {
+      // REAL COMPUTATION — enough live data flowing
+      const v = clamp01(vpin / 0.6), o = clamp01(Math.abs(this.ewmaOfi) / 0.5), l = clamp01(kyleLambda / 5);
+      const a = clamp01(amihud / 100), h = clamp01(hawkes), p = clamp01(pin / 0.5), s = clamp01(spreadBps / 50);
+      const logit = -2.5 + 3.5*v + 2.8*o + 2.0*l + 1.5*a + 1.8*h + 1.5*p + 1.0*s;
+      toxicScore = Math.min(100, Math.max(0, Math.round(100 / (1 + Math.exp(-logit)))));
+
+      // Crash risk (histogram percentile)
+      crashRisk = 0;
+      if (this.histTotal >= 5) {
+        const vpinIdx = Math.min(31, Math.max(0, Math.floor(vpin * 32)));
+        let below = 0; for (let i = 0; i < vpinIdx; i++) below += this.histBins[i];
+        below += this.histBins[vpinIdx] / 2;
+        const pct = below / this.histTotal;
+        const spreadSig = clamp01(spreadBps / 30);
+        const amihudSpike = this.ewmaAmihudInit && this.ewmaAmihud > 0 ? clamp01(amihud / (this.ewmaAmihud * 3)) : 0;
+        const cLogit = -2.0 + 4.0*pct + 2.5*spreadSig + 2.0*amihudSpike;
+        crashRisk = Math.min(100, Math.max(0, Math.round(100 / (1 + Math.exp(-cLogit)))));
+      }
     }
 
     if (this.scoreHistory.length >= 200) this.scoreHistory.shift();
@@ -431,7 +472,9 @@ class JSFallbackEngine {
     this.updateCount++;
 
     const computeTimeMs = performance.now() - t0;
-    const recommendation = this._getRec(toxicScore, crashRisk, vpin, this.ewmaOfi, kyleLambda, pin);
+    const recommendation = !marketActive && this.tickCount < 5
+      ? this._getMarketClosedRec(toxicScore, spreadBps, depthImbalance)
+      : this._getRec(toxicScore, crashRisk, vpin, this.ewmaOfi, kyleLambda, pin);
 
     return {
       success: true, ltp: quote.ltp, volume: quote.volume,
@@ -439,6 +482,7 @@ class JSFallbackEngine {
       kyleLambda: parseFloat(kyleLambda.toFixed(4)), amihud: parseFloat(amihud.toFixed(4)),
       hawkes: parseFloat(hawkes.toFixed(4)), pin: parseFloat(pin.toFixed(4)),
       toxicScore, crashRisk,
+      marketActive,
       spread: { spreadBps: parseFloat(spreadBps.toFixed(2)), mid: parseFloat(mid.toFixed(2)), depthImbalance: parseFloat(depthImbalance.toFixed(4)), bidDepth, askDepth },
       volumeBars: this.volumeBars.slice(-50),
       volumeBarSize: this.barSize, barProgress: this.barAcc.totalVol / this.barSize,
@@ -449,6 +493,19 @@ class JSFallbackEngine {
       recommendation, computeTimeMs: parseFloat(computeTimeMs.toFixed(3)),
       updateCount: this.updateCount, timestamp: new Date().toISOString(),
       transport: 'websocket', engine: 'js-o1-fallback',
+    };
+  }
+
+  _getMarketClosedRec(score, spreadBps, depthImbalance) {
+    const imb = Math.abs(depthImbalance);
+    const direction = depthImbalance > 0 ? 'buy-side heavy' : depthImbalance < 0 ? 'sell-side heavy' : 'balanced';
+    return {
+      label: 'MARKET CLOSED',
+      action: 'No live trading activity. Showing last session snapshot.',
+      color: '#d4af37',
+      details: `Closing order book is ${direction} (imbalance: ${(imb*100).toFixed(1)}%). Spread: ${spreadBps.toFixed(1)} bps. Real-time scores will activate when market opens (Mon-Fri 9:15 AM IST).`,
+      toxicScore: score,
+      crashRisk: 0,
     };
   }
 

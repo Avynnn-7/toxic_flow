@@ -55,6 +55,7 @@ export interface ToxicFlowData {
   // Scores
   toxicScore: number;
   crashRisk: number;
+  marketActive?: boolean;
 
   // Spread
   spread: Spread;

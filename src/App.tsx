@@ -242,7 +242,7 @@ export default function App() {
                       <span className="beginner-stock-vol">Vol: {(selectedData.volume / 1e6).toFixed(1)}M</span>
                     </div>
                     <div className="beginner-verdict-badge" style={{ background: `${selectedData.recommendation.color}18`, color: selectedData.recommendation.color, borderColor: `${selectedData.recommendation.color}40` }}>
-                      {selectedData.recommendation.label === 'SAFE' ? '🟢' : selectedData.recommendation.label === 'CAUTION' ? '🟡' : '🔴'} {selectedData.recommendation.label}
+                      {selectedData.recommendation.label === 'SAFE' ? '🟢' : selectedData.recommendation.label === 'MARKET CLOSED' ? '🌙' : selectedData.recommendation.label === 'CAUTION' ? '🟡' : '🔴'} {selectedData.recommendation.label}
                     </div>
                   </div>
 
