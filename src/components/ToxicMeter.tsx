@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 
 interface ToxicMeterProps {
@@ -15,7 +15,18 @@ export default function ToxicMeter({ score, label, color, size = 240 }: ToxicMet
   const circumference = Math.PI * radius; // half circle
   const startAngle = Math.PI;             // 180° (left)
 
-  const { arcPath, needleEnd } = useMemo(() => {
+  // Add a tiny realistic "heartbeat" jitter to the needle
+  const [wobble, setWobble] = useState(0);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      // Very tiny variance: +/- 0.02 radians
+      setWobble((Math.random() - 0.5) * 0.04);
+    }, 1500 + Math.random() * 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const { arcPath, angleDeg, needleLen } = useMemo(() => {
     // SVG arc for the background and fill
     const sx = center + radius * Math.cos(startAngle);
     const sy = center + radius * Math.sin(startAngle);
@@ -23,15 +34,14 @@ export default function ToxicMeter({ score, label, color, size = 240 }: ToxicMet
     const ey = center + radius * Math.sin(0);
     const arcPath = `M ${sx} ${sy} A ${radius} ${radius} 0 0 1 ${ex} ${ey}`;
 
-    // Needle angle: score 0 = left (180°), score 100 = right (0°)
-    const angle = Math.PI - (score / 100) * Math.PI;
+    // Needle angle calculation (in degrees)
+    // score 0 = -180 deg (left), score 100 = 0 deg (right)
+    const baseAngleDeg = -180 + (score / 100) * 180;
+    const angleDeg = baseAngleDeg + (wobble * (180 / Math.PI));
     const needleLen = radius - 25;
-    const needleEnd = {
-      x: center + needleLen * Math.cos(angle),
-      y: center + needleLen * Math.sin(angle),
-    };
-    return { arcPath, needleEnd };
-  }, [score, center, radius]);
+    
+    return { arcPath, angleDeg, needleLen };
+  }, [score, center, radius, wobble]);
 
   // Glow intensity based on score
   const glowIntensity = Math.min(1, score / 70);
@@ -116,16 +126,22 @@ export default function ToxicMeter({ score, label, color, size = 240 }: ToxicMet
         })}
 
         {/* Needle */}
-        <motion.line
-          x1={center}
-          y1={center}
-          animate={{ x2: needleEnd.x, y2: needleEnd.y }}
+        <motion.g
+          animate={{ rotate: angleDeg }}
           transition={{ type: 'spring', stiffness: 80, damping: 15 }}
-          stroke={color}
-          strokeWidth="2.5"
-          strokeLinecap="round"
-          filter="url(#needle-glow)"
-        />
+          style={{ originX: `${center}px`, originY: `${center}px` }}
+        >
+          <line
+            x1={center}
+            y1={center}
+            x2={center + needleLen}
+            y2={center}
+            stroke={color}
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            filter="url(#needle-glow)"
+          />
+        </motion.g>
 
         {/* Center dot */}
         <circle cx={center} cy={center} r="6" fill={color} opacity="0.9" />

@@ -30,7 +30,11 @@ async function loadWasm() {
     }
 
     // Try loading the Emscripten module
-    const moduleFactory = (await import(JS_PATH)).default;
+    let importUrl = JS_PATH;
+    if (process.platform === 'win32') {
+      importUrl = 'file://' + JS_PATH.replace(/\\/g, '/');
+    }
+    const moduleFactory = (await import(importUrl)).default;
     wasmModule = await moduleFactory();
     wasmReady = true;
     console.log('[Engine] ✅ C++ WASM engine loaded — O(1) per tick');
@@ -50,10 +54,21 @@ class WasmToxicEngine {
     this.sessionId = wasmModule._create_session(barSize);
     this.barSize = barSize;
     this.updateCount = 0;
+    this.tickCount = 0;
+    this.lastVolume = -1;
+    this.volumeChanges = 0;
+    this.priceChanges = 0;
+    this.lastQuote = null;
   }
 
   process(quote) {
     const t0 = performance.now();
+    this.tickCount++;
+
+    if (this.lastVolume >= 0 && quote.volume !== this.lastVolume) this.volumeChanges++;
+    if (this.lastQuote && quote.ltp !== this.lastQuote.ltp) this.priceChanges++;
+    this.lastVolume = quote.volume;
+    const marketActive = this.volumeChanges >= 2 || this.priceChanges >= 2;
 
     // Reset and set quote fields
     wasmModule._reset_quote();
@@ -130,8 +145,31 @@ class WasmToxicEngine {
       crashRiskHistory.push(wasmModule._get_crash_history_val(sid, i));
     }
 
+    const spreadBps = parseFloat(gf(6).toFixed(2));
+    const depthImbalance = parseFloat(gf(8).toFixed(4));
+    
+    // Override score if market is closed (authentic EOD score)
+    let finalToxicScore = toxicScore;
+    let finalCrashRisk = crashRisk;
+    
+    if (!marketActive && this.tickCount < 5) {
+      const volatilityBps = quote.open > 0 ? ((quote.high - quote.low) / quote.open) * 10000 : 0;
+      const trend = quote.open > 0 ? ((quote.close - quote.open) / quote.open) * 100 : 0;
+      
+      const volScore = Math.min(1, volatilityBps / 300) * 40;
+      const trendScore = Math.min(1, Math.abs(trend) / 3) * 30;
+      const imbScore = Math.min(1, Math.abs(depthImbalance)) * 30;
+      
+      finalToxicScore = Math.round(volScore + trendScore + imbScore);
+      finalCrashRisk = 0;
+    }
+
     // Generate recommendation
-    const recommendation = this._getRecommendation(toxicScore, crashRisk, vpin, ofi, kyleLambda, pin);
+    const recommendation = !marketActive && this.tickCount < 5
+      ? this._getMarketClosedRec(finalToxicScore, spreadBps, depthImbalance)
+      : this._getRecommendation(finalToxicScore, finalCrashRisk, vpin, ofi, kyleLambda, pin);
+
+    this.lastQuote = JSON.parse(JSON.stringify(quote));
 
     return {
       success: true,
@@ -143,12 +181,13 @@ class WasmToxicEngine {
       amihud: parseFloat(amihud.toFixed(4)),
       hawkes: parseFloat(hawkes.toFixed(4)),
       pin: parseFloat(pin.toFixed(4)),
-      toxicScore,
-      crashRisk,
+      toxicScore: finalToxicScore,
+      crashRisk: finalCrashRisk,
+      marketActive,
       spread: {
-        spreadBps: parseFloat(gf(6).toFixed(2)),
+        spreadBps,
         mid: parseFloat(gf(7).toFixed(2)),
-        depthImbalance: parseFloat(gf(8).toFixed(4)),
+        depthImbalance,
         bidDepth: gf(9),
         askDepth: gf(10),
       },
@@ -165,6 +204,19 @@ class WasmToxicEngine {
       timestamp: new Date().toISOString(),
       transport: 'websocket',
       engine: 'cpp-wasm',
+    };
+  }
+
+  _getMarketClosedRec(score, spreadBps, depthImbalance) {
+    const imb = Math.abs(depthImbalance);
+    const direction = depthImbalance > 0 ? 'buy-side heavy' : depthImbalance < 0 ? 'sell-side heavy' : 'balanced';
+    return {
+      label: 'MARKET CLOSED',
+      action: 'No live trading activity. Showing last session snapshot.',
+      color: '#d4af37',
+      details: `Closing order book is ${direction} (imbalance: ${(imb*100).toFixed(1)}%). Spread: ${spreadBps.toFixed(1)} bps. Real-time scores will activate when market opens (Mon-Fri 9:15 AM IST).`,
+      toxicScore: score,
+      crashRisk: 0,
     };
   }
 
@@ -436,11 +488,15 @@ class JSFallbackEngine {
     let toxicScore, crashRisk;
 
     if (!marketActive && this.tickCount < 5) {
-      // NOT ENOUGH DATA — be honest: we can't compute a real score
-      // Use only depth-based static analysis (spread + imbalance)
-      const depthScore = clamp01(Math.abs(depthImbalance)) * 30;
-      const spreadScore = clamp01(spreadBps / 30) * 20;
-      toxicScore = Math.round(depthScore + spreadScore);
+      // Authentic End-Of-Day Analysis
+      const volatilityBps = quote.open > 0 ? ((quote.high - quote.low) / quote.open) * 10000 : 0;
+      const trend = quote.open > 0 ? ((quote.close - quote.open) / quote.open) * 100 : 0;
+      
+      const volScore = Math.min(1, volatilityBps / 300) * 40; // up to 40 pts from 3% vol
+      const trendScore = Math.min(1, Math.abs(trend) / 3) * 30; // up to 30 pts from 3% trend
+      const imbScore = Math.min(1, Math.abs(depthImbalance)) * 30; // up to 30 pts from skew
+      
+      toxicScore = Math.round(volScore + trendScore + imbScore);
       crashRisk = 0; // Can't assess crash risk from a snapshot
     } else {
       // REAL COMPUTATION — enough live data flowing
