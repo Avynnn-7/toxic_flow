@@ -129,7 +129,7 @@ export default function ToxicMeter({ score, label, color, size = 240 }: ToxicMet
         <motion.g
           animate={{ rotate: angleDeg }}
           transition={{ type: 'spring', stiffness: 80, damping: 15 }}
-          style={{ originX: `${center}px`, originY: `${center}px` }}
+          style={{ transformOrigin: `${center}px ${center}px` }}
         >
           <line
             x1={center}
