@@ -7,20 +7,20 @@ import type { ToxicFlowData } from '../types/toxic';
  * Features:
  *   - Auto-reconnect with exponential backoff
  *   - Per-symbol subscriptions
+ *   - Immediate HTTP fetch on subscribe for initial data (fixes market-closed blank screen)
  *   - Falls back to HTTP polling if WebSocket fails
  *   - Heartbeat-aware
  */
 
-// Auto-detect WebSocket URL
 function getWsUrl(): string {
   if (import.meta.env.VITE_WS_URL) return import.meta.env.VITE_WS_URL;
   const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   return `${proto}//${window.location.host}/ws`;
 }
 
-const HTTP_POLL_MS = 1500;
+const HTTP_POLL_MS = 2000;
 
-export type SymbolKey = string; // "RELIANCE:NSE_EQ"
+export type SymbolKey = string;
 
 interface WsState {
   connected: boolean;
@@ -40,17 +40,30 @@ export function useWebSocket(onData: DataCallback) {
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectAttempts = useRef(0);
   const maxReconnect = 5;
-  const subscribedSymbols = useRef<Map<string, string>>(new Map()); // symbol -> exchange
+  const subscribedSymbols = useRef<Map<string, string>>(new Map());
   const onDataRef = useRef(onData);
   onDataRef.current = onData;
+  const receivedData = useRef<Set<string>>(new Set()); // track which symbols got WS data
 
-  // Client-driven WebSocket polling (for CF Workers which can't run server-side intervals)
   const wsPollTimer = useRef<ReturnType<typeof setInterval> | null>(null);
-  const WS_POLL_MS = 500; // 500ms = 2 updates/sec over WebSocket
+  const WS_POLL_MS = 500;
 
-  // HTTP polling fallback state
   const pollIntervals = useRef<Map<string, ReturnType<typeof setInterval>>>(new Map());
   const usingHttpFallback = useRef(false);
+
+  // ── One-shot HTTP fetch (for immediate data on subscribe) ───────────────
+  const fetchOnce = useCallback(async (symbol: string, exchange: string) => {
+    try {
+      const start = performance.now();
+      const res = await fetch(`/api/toxic-flow?symbol=${encodeURIComponent(symbol)}&exchange=${encodeURIComponent(exchange)}`);
+      const json = await res.json();
+      if (json.success) {
+        json.transport = 'http-initial';
+        onDataRef.current(symbol, json as ToxicFlowData);
+        setState(s => ({ ...s, latency: Math.round(performance.now() - start) }));
+      }
+    } catch { /* ignore */ }
+  }, []);
 
   // ── HTTP Polling Fallback ──────────────────────────────────────────────
   const startHttpPoll = useCallback((symbol: string, exchange: string) => {
@@ -101,7 +114,6 @@ export function useWebSocket(onData: DataCallback) {
         usingHttpFallback.current = false;
         stopAllHttpPolls();
 
-        // Re-subscribe all previously subscribed symbols
         if (subscribedSymbols.current.size > 0) {
           const symbols = [...subscribedSymbols.current.entries()].map(
             ([symbol, exchange]) => ({ symbol, exchange })
@@ -109,7 +121,6 @@ export function useWebSocket(onData: DataCallback) {
           ws.send(JSON.stringify({ type: 'subscribe', symbols }));
         }
 
-        // Start client-driven polling (CF Workers need client to trigger fetches)
         if (wsPollTimer.current) clearInterval(wsPollTimer.current);
         wsPollTimer.current = setInterval(() => {
           if (ws.readyState === WebSocket.OPEN && subscribedSymbols.current.size > 0) {
@@ -122,41 +133,35 @@ export function useWebSocket(onData: DataCallback) {
         try {
           const msg = JSON.parse(event.data);
           if (msg.type === 'update') {
+            receivedData.current.add(msg.symbol);
             onDataRef.current(msg.symbol, msg.data);
             setState(s => ({ ...s, latency: msg.data?.totalLatencyMs || 0 }));
           }
-        } catch { /* ignore parse errors */ }
+        } catch { /* ignore */ }
       };
 
       ws.onclose = () => {
         console.log('[WS] Disconnected');
         setState(s => ({ ...s, connected: false }));
-        // Stop client-driven polling
         if (wsPollTimer.current) { clearInterval(wsPollTimer.current); wsPollTimer.current = null; }
 
         if (reconnectAttempts.current < maxReconnect) {
           const delay = Math.min(1000 * Math.pow(2, reconnectAttempts.current), 8000);
-          console.log(`[WS] Reconnecting in ${delay}ms (attempt ${reconnectAttempts.current + 1})`);
           setTimeout(connect, delay);
           reconnectAttempts.current++;
         } else {
-          console.log('[WS] Max reconnect attempts. Falling back to HTTP polling.');
           usingHttpFallback.current = true;
           setState(s => ({ ...s, transport: 'http-poll' }));
-          // Start HTTP polling for all subscribed symbols
           for (const [symbol, exchange] of subscribedSymbols.current) {
             startHttpPoll(symbol, exchange);
           }
         }
       };
 
-      ws.onerror = () => {
-        // onclose will fire after this
-      };
+      ws.onerror = () => {};
 
       wsRef.current = ws;
     } catch {
-      // WebSocket creation failed — use HTTP polling
       usingHttpFallback.current = true;
       setState(s => ({ ...s, transport: 'http-poll', connected: false }));
       for (const [symbol, exchange] of subscribedSymbols.current) {
@@ -169,6 +174,9 @@ export function useWebSocket(onData: DataCallback) {
   const subscribe = useCallback((symbol: string, exchange: string = 'NSE_EQ') => {
     subscribedSymbols.current.set(symbol, exchange);
 
+    // Always do one immediate HTTP fetch so we never show a blank screen
+    fetchOnce(symbol, exchange);
+
     if (usingHttpFallback.current) {
       startHttpPoll(symbol, exchange);
       return;
@@ -180,11 +188,12 @@ export function useWebSocket(onData: DataCallback) {
         symbols: [{ symbol, exchange }],
       }));
     }
-  }, [startHttpPoll]);
+  }, [startHttpPoll, fetchOnce]);
 
   // ── Unsubscribe ────────────────────────────────────────────────────────
   const unsubscribe = useCallback((symbol: string, exchange: string = 'NSE_EQ') => {
     subscribedSymbols.current.delete(symbol);
+    receivedData.current.delete(symbol);
     stopHttpPoll(symbol, exchange);
 
     if (wsRef.current?.readyState === WebSocket.OPEN) {

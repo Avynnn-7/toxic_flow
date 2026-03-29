@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, Search, X } from 'lucide-react';
+import { Search, X, TrendingUp } from 'lucide-react';
 import type { ToxicFlowData, SearchResult } from '../types/toxic';
 
 interface WatchListProps {
@@ -13,19 +13,17 @@ interface WatchListProps {
   onRemove: (symbol: string) => void;
 }
 
-const POPULAR_STOCKS = [
-  { symbol: 'RELIANCE', exchange: 'NSE_EQ' },
-  { symbol: 'TCS', exchange: 'NSE_EQ' },
-  { symbol: 'HDFCBANK', exchange: 'NSE_EQ' },
-  { symbol: 'INFY', exchange: 'NSE_EQ' },
-  { symbol: 'ICICIBANK', exchange: 'NSE_EQ' },
-  { symbol: 'SBIN', exchange: 'NSE_EQ' },
-  { symbol: 'WIPRO', exchange: 'NSE_EQ' },
-  { symbol: 'TATAMOTORS', exchange: 'NSE_EQ' },
-  { symbol: 'ADANIENT', exchange: 'NSE_EQ' },
-  { symbol: 'BHARTIARTL', exchange: 'NSE_EQ' },
-  { symbol: 'ITC', exchange: 'NSE_EQ' },
-  { symbol: 'LT', exchange: 'NSE_EQ' },
+const POPULAR_SUGGESTIONS = [
+  { symbol: 'RELIANCE', name: 'Reliance Industries' },
+  { symbol: 'TCS', name: 'Tata Consultancy' },
+  { symbol: 'HDFCBANK', name: 'HDFC Bank' },
+  { symbol: 'INFY', name: 'Infosys' },
+  { symbol: 'SBIN', name: 'State Bank of India' },
+  { symbol: 'ICICIBANK', name: 'ICICI Bank' },
+  { symbol: 'WIPRO', name: 'Wipro' },
+  { symbol: 'TATAMOTORS', name: 'Tata Motors' },
+  { symbol: 'ITC', name: 'ITC Ltd' },
+  { symbol: 'BHARTIARTL', name: 'Bharti Airtel' },
 ];
 
 function getScoreColor(score: number): string {
@@ -46,7 +44,6 @@ export default function WatchList({
   symbols, activeSymbol, activeExchange, symbolData,
   onSelect, onAdd, onRemove,
 }: WatchListProps) {
-  const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -55,10 +52,10 @@ export default function WatchList({
   const searchTimeout = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   useEffect(() => {
-    if (showSearch && searchRef.current) {
+    if (searchRef.current && symbols.length === 0) {
       searchRef.current.focus();
     }
-  }, [showSearch]);
+  }, [symbols.length]);
 
   const doSearch = useCallback(async (q: string) => {
     if (q.length < 1) { setSearchResults([]); return; }
@@ -82,35 +79,27 @@ export default function WatchList({
   }, [doSearch]);
 
   const handleAddSymbol = useCallback((symbol: string, exchange: string) => {
-    const alreadyExists = symbols.some(s => s.symbol === symbol);
-    if (!alreadyExists) {
-      onAdd(symbol, exchange);
-    }
-    onSelect(symbol, exchange);
-    setShowSearch(false);
+    onAdd(symbol, exchange);
     setSearchQuery('');
     setSearchResults([]);
-  }, [symbols, onAdd, onSelect]);
+  }, [onAdd]);
 
-  const handleQuickAdd = useCallback((symbol: string, exchange: string) => {
-    handleAddSymbol(symbol, exchange);
-  }, [handleAddSymbol]);
+  // Filter popular suggestions to hide already-added stocks
+  const filteredSuggestions = POPULAR_SUGGESTIONS.filter(
+    s => !symbols.some(sym => sym.symbol === s.symbol)
+  );
 
   return (
     <div className="watchlist-panel">
       {/* Header */}
       <div className="watchlist-header">
-        <span className="watchlist-title">Scanner</span>
-        <button
-          className="watchlist-add-btn"
-          onClick={() => setShowSearch(!showSearch)}
-          title="Add Stock"
-        >
-          {showSearch ? <X size={14} /> : <Plus size={14} />}
-        </button>
+        <span className="watchlist-title">
+          <TrendingUp size={14} style={{ marginRight: 6, opacity: 0.6 }} />
+          Stock Scanner
+        </span>
       </div>
 
-      {/* Exchange Filter Tabs */}
+      {/* Exchange Filter */}
       <div className="exchange-tabs">
         {(['ALL', 'NSE', 'BSE'] as const).map(tab => (
           <button
@@ -126,83 +115,107 @@ export default function WatchList({
         ))}
       </div>
 
-      {/* Search */}
+      {/* Search — always visible */}
+      <div className="watchlist-search">
+        <Search size={14} style={{ color: 'var(--text-dim)', flexShrink: 0 }} />
+        <input
+          ref={searchRef}
+          type="text"
+          className="watchlist-search-input"
+          placeholder="Search any stock..."
+          value={searchQuery}
+          onChange={handleSearchChange}
+        />
+        {searchQuery && (
+          <button
+            onClick={() => { setSearchQuery(''); setSearchResults([]); }}
+            style={{ background: 'none', border: 'none', color: 'var(--text-dim)', cursor: 'pointer', padding: 2 }}
+          >
+            <X size={12} />
+          </button>
+        )}
+        {isSearching && (
+          <div className="loading-bar" style={{ width: 30, height: 2 }}>
+            <div className="loading-bar-fill" />
+          </div>
+        )}
+      </div>
+
+      {/* Search results */}
       <AnimatePresence>
-        {showSearch && (
+        {searchResults.length > 0 && (
           <motion.div
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.2 }}
           >
-            <div className="watchlist-search">
-              <Search size={14} style={{ color: 'var(--text-dim)' }} />
-              <input
-                ref={searchRef}
-                type="text"
-                className="watchlist-search-input"
-                placeholder="Search NSE / BSE stocks..."
-                value={searchQuery}
-                onChange={handleSearchChange}
-              />
-              {isSearching && (
-                <div className="loading-bar" style={{ width: 40, height: 2 }}>
-                  <div className="loading-bar-fill" />
-                </div>
-              )}
-            </div>
-
-            {/* Popular Stocks Quick-Add */}
-            {!searchQuery && (
-              <div className="popular-stocks">
-                <div className="popular-stocks-label">Popular Stocks</div>
-                <div className="popular-stocks-grid">
-                  {POPULAR_STOCKS.map(s => (
-                    <button
-                      key={s.symbol}
-                      className="popular-stock-chip"
-                      onClick={() => handleQuickAdd(s.symbol, s.exchange)}
-                    >
-                      {s.symbol}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Search Results */}
-            {searchResults.length > 0 && (
-              <div className="watchlist-search-results">
-                {searchResults.map((r, i) => (
-                  <button
-                    key={`${r.symbol}-${r.exchange}-${i}`}
-                    className="watchlist-search-item"
-                    onClick={() => handleAddSymbol(r.symbol, r.exchange)}
-                  >
-                    <div>
-                      <div style={{ fontWeight: 600, fontFamily: 'JetBrains Mono, monospace' }}>
-                        {r.symbol}
-                      </div>
-                      <div className="watchlist-search-item-name">
-                        {r.name || r.symbol}
-                      </div>
+            <div className="watchlist-search-results">
+              {searchResults.map((r, i) => (
+                <button
+                  key={`${r.symbol}-${r.exchange}-${i}`}
+                  className="watchlist-search-item"
+                  onClick={() => handleAddSymbol(r.symbol, r.exchange)}
+                >
+                  <div>
+                    <div style={{ fontWeight: 600, fontFamily: 'JetBrains Mono, monospace' }}>
+                      {r.symbol}
                     </div>
-                    <span style={{
-                      fontSize: '0.55rem',
-                      padding: '2px 6px',
-                      borderRadius: 4,
-                      background: r.exchange?.includes('BSE') ? 'rgba(255, 170, 0, 0.1)' : 'rgba(212, 175, 55, 0.08)',
-                      color: r.exchange?.includes('BSE') ? 'var(--caution)' : 'var(--accent-gold)',
-                    }}>
-                      {r.exchange?.includes('BSE') ? 'BSE' : 'NSE'}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            )}
+                    <div className="watchlist-search-item-name">
+                      {r.name || r.symbol}
+                    </div>
+                  </div>
+                  <span style={{
+                    fontSize: '0.55rem',
+                    padding: '2px 6px',
+                    borderRadius: 4,
+                    background: r.exchange?.includes('BSE') ? 'rgba(255, 170, 0, 0.1)' : 'rgba(212, 175, 55, 0.08)',
+                    color: r.exchange?.includes('BSE') ? 'var(--caution)' : 'var(--accent-gold)',
+                  }}>
+                    {r.exchange?.includes('BSE') ? 'BSE' : 'NSE'}
+                  </span>
+                </button>
+              ))}
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Quick suggestions when no search and no stocks added */}
+      {!searchQuery && symbols.length === 0 && (
+        <div className="sidebar-suggestions">
+          <div className="suggestions-label">Try these popular stocks:</div>
+          <div className="suggestions-list">
+            {filteredSuggestions.slice(0, 6).map(s => (
+              <button
+                key={s.symbol}
+                className="suggestion-chip"
+                onClick={() => handleAddSymbol(s.symbol, 'NSE_EQ')}
+              >
+                <span className="suggestion-symbol">{s.symbol}</span>
+                <span className="suggestion-name">{s.name}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Quick suggestions when stocks exist */}
+      {!searchQuery && symbols.length > 0 && filteredSuggestions.length > 0 && (
+        <div className="sidebar-suggestions compact">
+          <div className="suggestions-label">Add more:</div>
+          <div className="popular-stocks-grid">
+            {filteredSuggestions.slice(0, 5).map(s => (
+              <button
+                key={s.symbol}
+                className="popular-stock-chip"
+                onClick={() => handleAddSymbol(s.symbol, 'NSE_EQ')}
+              >
+                + {s.symbol}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Watchlist Items */}
       <div className="watchlist-items">
@@ -273,18 +286,6 @@ export default function WatchList({
             </motion.div>
           );
         })}
-
-        {symbols.length === 0 && (
-          <div style={{
-            padding: '40px 20px',
-            textAlign: 'center',
-            color: 'var(--text-dim)',
-            fontSize: '0.75rem',
-          }}>
-            <p style={{ marginBottom: 8 }}>No stocks in scanner</p>
-            <p>Click <strong>+</strong> to add a stock</p>
-          </div>
-        )}
       </div>
     </div>
   );
