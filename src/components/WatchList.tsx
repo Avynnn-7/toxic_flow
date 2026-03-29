@@ -191,8 +191,8 @@ export default function WatchList({
                       fontSize: '0.55rem',
                       padding: '2px 6px',
                       borderRadius: 4,
-                      background: r.exchange?.includes('BSE') ? 'rgba(255, 170, 0, 0.1)' : 'rgba(59, 130, 246, 0.1)',
-                      color: r.exchange?.includes('BSE') ? 'var(--caution)' : 'var(--accent-blue)',
+                      background: r.exchange?.includes('BSE') ? 'rgba(255, 170, 0, 0.1)' : 'rgba(212, 175, 55, 0.08)',
+                      color: r.exchange?.includes('BSE') ? 'var(--caution)' : 'var(--accent-gold)',
                     }}>
                       {r.exchange?.includes('BSE') ? 'BSE' : 'NSE'}
                     </span>
@@ -243,8 +243,8 @@ export default function WatchList({
                     fontSize: '0.58rem',
                     padding: '1px 5px',
                     borderRadius: 3,
-                    background: exchange.includes('BSE') ? 'rgba(255, 170, 0, 0.1)' : 'rgba(59, 130, 246, 0.1)',
-                    color: exchange.includes('BSE') ? 'var(--caution)' : 'var(--accent-blue)',
+                    background: exchange.includes('BSE') ? 'rgba(255, 170, 0, 0.1)' : 'rgba(212, 175, 55, 0.08)',
+                    color: exchange.includes('BSE') ? 'var(--caution)' : 'var(--accent-gold)',
                   }}>
                     {exchange.includes('BSE') ? 'BSE' : 'NSE'}
                   </span>

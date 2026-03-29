@@ -171,31 +171,31 @@ class WasmToxicEngine {
   _getRecommendation(score, crashRisk, vpin, ofi, lambda, pin) {
     if (score <= 25) return {
       label: 'SAFE', action: 'Normal market conditions. No signs of manipulation.',
-      color: '#00d4aa',
+      color: '#22c55e',
       details: 'Order flow looks clean — no significant institutional manipulation detected. Safe to trade with standard position sizing.',
       toxicScore: score, crashRisk,
     };
     if (score <= 50) return {
       label: 'CAUTION', action: 'Mixed signals. Some unusual activity detected.',
-      color: '#ffaa00',
+      color: '#eab308',
       details: `Order flow shows ${ofi > 0 ? 'buying' : 'selling'} pressure. Consider reducing position size. Use tighter stop-losses.`,
       toxicScore: score, crashRisk,
     };
     if (score <= 70) return {
       label: 'TOXIC', action: 'Significant toxic flow. Institutional players likely active.',
-      color: '#ff6b35',
+      color: '#f97316',
       details: `VPIN at ${(vpin * 100).toFixed(1)}%. Kyle's Lambda shows ${lambda > 2 ? 'high' : 'moderate'} price impact. Avoid new positions.`,
       toxicScore: score, crashRisk,
     };
     if (score <= 85) return {
       label: 'DANGER', action: 'Extreme toxic flow. High adverse selection risk.',
-      color: '#ff3b57',
+      color: '#ef4444',
       details: `PIN estimate: ${(pin * 100).toFixed(1)}%. Flow is heavily skewed. EXIT positions. Stop-loss slippage risk is HIGH.`,
       toxicScore: score, crashRisk,
     };
     return {
       label: 'CRASH RISK', action: 'CRITICAL: Flash crash conditions detected.',
-      color: '#ff0040',
+      color: '#dc2626',
       details: 'VPIN at extreme levels. Liquidity evaporating. EXIT ALL. Do NOT buy the dip.',
       toxicScore: score, crashRisk,
     };
@@ -453,11 +453,11 @@ class JSFallbackEngine {
   }
 
   _getRec(score, crashRisk, vpin, ofi, lambda, pin) {
-    if (score <= 25) return { label: 'SAFE', action: 'Normal market conditions. No signs of manipulation.', color: '#00d4aa', details: 'Order flow looks clean. Safe to trade.', toxicScore: score, crashRisk };
-    if (score <= 50) return { label: 'CAUTION', action: 'Mixed signals detected.', color: '#ffaa00', details: `Flow shows ${ofi > 0 ? 'buying' : 'selling'} pressure. Reduce size, tighten stops.`, toxicScore: score, crashRisk };
-    if (score <= 70) return { label: 'TOXIC', action: 'Significant toxic flow detected.', color: '#ff6b35', details: `VPIN at ${(vpin*100).toFixed(1)}%. Avoid new positions.`, toxicScore: score, crashRisk };
-    if (score <= 85) return { label: 'DANGER', action: 'Extreme toxic flow. EXIT positions.', color: '#ff3b57', details: `PIN: ${(pin*100).toFixed(1)}%. Stop-loss slippage risk HIGH.`, toxicScore: score, crashRisk };
-    return { label: 'CRASH RISK', action: 'CRITICAL: Flash crash conditions.', color: '#ff0040', details: 'EXIT ALL. Do NOT buy the dip.', toxicScore: score, crashRisk };
+    if (score <= 25) return { label: 'SAFE', action: 'Normal market conditions. No signs of manipulation.', color: '#22c55e', details: 'Order flow looks clean. Safe to trade.', toxicScore: score, crashRisk };
+    if (score <= 50) return { label: 'CAUTION', action: 'Mixed signals detected.', color: '#eab308', details: `Flow shows ${ofi > 0 ? 'buying' : 'selling'} pressure. Reduce size, tighten stops.`, toxicScore: score, crashRisk };
+    if (score <= 70) return { label: 'TOXIC', action: 'Significant toxic flow detected.', color: '#f97316', details: `VPIN at ${(vpin*100).toFixed(1)}%. Avoid new positions.`, toxicScore: score, crashRisk };
+    if (score <= 85) return { label: 'DANGER', action: 'Extreme toxic flow. EXIT positions.', color: '#ef4444', details: `PIN: ${(pin*100).toFixed(1)}%. Stop-loss slippage risk HIGH.`, toxicScore: score, crashRisk };
+    return { label: 'CRASH RISK', action: 'CRITICAL: Flash crash conditions.', color: '#dc2626', details: 'EXIT ALL. Do NOT buy the dip.', toxicScore: score, crashRisk };
   }
 }
 

@@ -41,12 +41,12 @@ export default function OFIChart({ history }: OFIChartProps) {
             <AreaChart data={chartData}>
               <defs>
                 <linearGradient id="ofi-pos" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#00d4aa" stopOpacity={0.4} />
-                  <stop offset="100%" stopColor="#00d4aa" stopOpacity={0} />
+                  <stop offset="0%" stopColor="#22c55e" stopOpacity={0.4} />
+                  <stop offset="100%" stopColor="#22c55e" stopOpacity={0} />
                 </linearGradient>
                 <linearGradient id="ofi-neg" x1="0" y1="1" x2="0" y2="0">
-                  <stop offset="0%" stopColor="#ff4d6a" stopOpacity={0.4} />
-                  <stop offset="100%" stopColor="#ff4d6a" stopOpacity={0} />
+                  <stop offset="0%" stopColor="#ef4444" stopOpacity={0.4} />
+                  <stop offset="100%" stopColor="#ef4444" stopOpacity={0} />
                 </linearGradient>
               </defs>
               <XAxis
@@ -77,11 +77,11 @@ export default function OFIChart({ history }: OFIChartProps) {
               <Area
                 type="monotone"
                 dataKey="ofi"
-                stroke="#00d4aa"
+                stroke="#22c55e"
                 fill="url(#ofi-pos)"
                 strokeWidth={2}
                 dot={false}
-                activeDot={{ r: 3, fill: '#00d4aa' }}
+                activeDot={{ r: 3, fill: '#22c55e' }}
               />
             </AreaChart>
           </ResponsiveContainer>

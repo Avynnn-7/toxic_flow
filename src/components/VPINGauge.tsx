@@ -37,8 +37,8 @@ export default function VPINGauge({ vpinHistory, crashRiskHistory }: VPINGaugePr
       <div className="card-header">
         <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>Toxic Score & Crash Risk</span>
         <div style={{ display: 'flex', gap: 12, fontSize: '0.65rem' }}>
-          <span style={{ color: '#a855f7' }}>━ Toxic Score</span>
-          <span style={{ color: '#ff3b57' }}>━ Crash Risk</span>
+          <span style={{ color: '#d4af37' }}>━ Toxic Score</span>
+          <span style={{ color: '#ef4444' }}>━ Crash Risk</span>
         </div>
       </div>
       <div className="card-body" style={{ padding: '12px 8px' }}>
@@ -47,8 +47,8 @@ export default function VPINGauge({ vpinHistory, crashRiskHistory }: VPINGaugePr
             <ComposedChart data={vpinData}>
               <defs>
                 <linearGradient id="crash-fill" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#ff3b57" stopOpacity={0.15} />
-                  <stop offset="100%" stopColor="#ff3b57" stopOpacity={0} />
+                  <stop offset="0%" stopColor="#ef4444" stopOpacity={0.15} />
+                  <stop offset="100%" stopColor="#ef4444" stopOpacity={0} />
                 </linearGradient>
               </defs>
               <XAxis
@@ -75,7 +75,7 @@ export default function VPINGauge({ vpinHistory, crashRiskHistory }: VPINGaugePr
                 }}
               />
               {/* Danger zone reference */}
-              <ReferenceLine y={70} stroke="rgba(255,59,87,0.3)" strokeDasharray="6 4" label={{ value: 'DANGER', fill: 'rgba(255,59,87,0.4)', fontSize: 9 }} />
+              <ReferenceLine y={70} stroke="rgba(239,68,68,0.3)" strokeDasharray="6 4" label={{ value: 'DANGER', fill: 'rgba(239,68,68,0.4)', fontSize: 9 }} />
               <ReferenceLine y={50} stroke="rgba(255,170,0,0.2)" strokeDasharray="4 4" />
 
               <Area
@@ -87,18 +87,18 @@ export default function VPINGauge({ vpinHistory, crashRiskHistory }: VPINGaugePr
               <Line
                 type="monotone"
                 dataKey="crashRisk"
-                stroke="#ff3b57"
+                stroke="#ef4444"
                 strokeWidth={1.5}
                 dot={false}
-                activeDot={{ r: 3, fill: '#ff3b57' }}
+                activeDot={{ r: 3, fill: '#ef4444' }}
               />
               <Line
                 type="monotone"
                 dataKey="vpin"
-                stroke="#a855f7"
+                stroke="#d4af37"
                 strokeWidth={2}
                 dot={false}
-                activeDot={{ r: 3, fill: '#a855f7' }}
+                activeDot={{ r: 3, fill: '#d4af37' }}
               />
             </ComposedChart>
           </ResponsiveContainer>

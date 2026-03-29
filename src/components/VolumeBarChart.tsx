@@ -72,14 +72,14 @@ export default function VolumeBarChart({ bars }: VolumeBarChartProps) {
                 {chartData.map((entry, i) => (
                   <Cell
                     key={`buy-${i}`}
-                    fill={entry.vpin > 0.5 ? '#ff6b35' : entry.vpin > 0.3 ? '#ffaa00' : '#00d4aa'}
+                    fill={entry.vpin > 0.5 ? '#f97316' : entry.vpin > 0.3 ? '#eab308' : '#22c55e'}
                     fillOpacity={0.85}
                   />
                 ))}
               </Bar>
               <Bar dataKey="sell" stackId="vol" radius={[0, 0, 3, 3]}>
                 {chartData.map((_entry, i) => (
-                  <Cell key={`sell-${i}`} fill="#ff4d6a" fillOpacity={0.6} />
+                  <Cell key={`sell-${i}`} fill="#ef4444" fillOpacity={0.6} />
                 ))}
               </Bar>
             </BarChart>
