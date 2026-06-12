@@ -1,8 +1,4 @@
-/**
- * Upstox API client for Toxic Flow.
- * Supports ALL stocks (NSE + BSE) via dynamic instrument search.
- * Token never exposed to frontend — server-side only.
- */
+
 
 const INDEX_INSTRUMENTS = {
   'NIFTY':      'NSE_INDEX|Nifty 50',
@@ -26,48 +22,42 @@ async function upstoxFetch(endpoint, token, version = 'v2') {
   return res.json();
 }
 
-/**
- * Dynamically resolve any symbol to its Upstox instrument_key.
- * Supports both NSE and BSE exchanges.
- */
+
 export async function resolveInstrumentKey(symbol, exchange, token) {
-  if (exchange === 'NSE_INDEX' || exchange === 'BSE_INDEX') {
+  if (exchange  'NSE_INDEX' || exchange  'BSE_INDEX') {
     const key = INDEX_INSTRUMENTS[symbol];
     if (key) return key;
     throw new Error(`Unknown index: ${symbol}`);
   }
 
-  const exch = exchange === 'BSE_EQ' ? 'BSE' : 'NSE';
+  const exch = exchange  'BSE_EQ' ? 'BSE' : 'NSE';
   const searchUrl = `/instruments/search?query=${encodeURIComponent(symbol)}&exchanges=${exch}&segments=EQ&records=5`;
   const data = await upstoxFetch(searchUrl, token);
   const results = data?.data || [];
 
-  if (results.length === 0) {
-    throw new Error(`No instrument found for "${symbol}" on ${exchange}.`);
+  if (results.length  0) {
+    throw new Error(`No instrument found for __STRING_5a8f1c22a8eb4caabd1cb7ec68f33d25__ on ${exchange}.`);
   }
 
   const exact = results.find(r =>
-    r.trading_symbol?.toUpperCase() === symbol.toUpperCase() ||
-    r.name?.toUpperCase() === symbol.toUpperCase()
+    r.trading_symbol?.toUpperCase()  symbol.toUpperCase() ||
+    r.name?.toUpperCase()  symbol.toUpperCase()
   );
   return (exact || results[0]).instrument_key;
 }
 
-/**
- * Search instruments — for autocomplete.
- * Supports filtering by exchange (NSE, BSE, or both).
- */
+
 export async function searchInstruments(query, token, exchangeFilter) {
   if (!query || query.length < 1) return [];
   try {
-    // Build search URL with optional exchange filter
+    
     let searchParams = `query=${encodeURIComponent(query)}&segments=EQ&records=15`;
-    if (exchangeFilter === 'NSE' || exchangeFilter === 'NSE_EQ') {
+    if (exchangeFilter  'NSE' || exchangeFilter  'NSE_EQ') {
       searchParams += '&exchanges=NSE';
-    } else if (exchangeFilter === 'BSE' || exchangeFilter === 'BSE_EQ') {
+    } else if (exchangeFilter  'BSE' || exchangeFilter  'BSE_EQ') {
       searchParams += '&exchanges=BSE';
     }
-    // If no filter, search both exchanges
+    
 
     const data = await upstoxFetch(`/instruments/search?${searchParams}`, token);
     return (data?.data || []).map(r => ({
@@ -82,9 +72,7 @@ export async function searchInstruments(query, token, exchangeFilter) {
   }
 }
 
-/**
- * Fetch live quote with full depth.
- */
+
 export async function fetchQuoteWithDepth(instrumentKey, token) {
   const data = await upstoxFetch(
     `/market-quote/quotes?instrument_key=${encodeURIComponent(instrumentKey)}`,
