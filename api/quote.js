@@ -1,7 +1,4 @@
-/**
- * Vercel Serverless: /api/quote
- * Lightweight LTP + volume endpoint for initial load / symbol validation.
- */
+
 
 import { resolveInstrumentKey, fetchQuoteWithDepth } from './lib/upstox-client.js';
 
@@ -10,7 +7,7 @@ const instrumentCache = {};
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  if (req.method === 'OPTIONS') return res.status(200).end();
+  if (req.method  'OPTIONS') return res.status(200).end();
 
   const { symbol, exchange = 'NSE_EQ' } = req.query;
 

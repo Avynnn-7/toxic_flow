@@ -1,14 +1,11 @@
-/**
- * Vercel Serverless: /api/search
- * Instrument search for autocomplete.
- */
+
 
 import { searchInstruments } from './lib/upstox-client.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  if (req.method === 'OPTIONS') return res.status(200).end();
+  if (req.method  'OPTIONS') return res.status(200).end();
 
   const { q } = req.query;
   if (!q || String(q).length < 1) {
