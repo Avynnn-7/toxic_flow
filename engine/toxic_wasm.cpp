@@ -1,33 +1,21 @@
-/**
- * toxic_wasm.cpp — WebAssembly binding for ToxicEngine
- *
- * Compiled with: emcc toxic_wasm.cpp -o toxic_engine.js \
- *   -s EXPORTED_FUNCTIONS="['_create_session','_process_tick','_get_result_field','_init_session','_destroy_session']" \
- *   -s EXPORTED_RUNTIME_METHODS="['ccall','cwrap']" \
- *   -s MODULARIZE=1 -s EXPORT_NAME="ToxicEngineModule" \
- *   -O3 -flto --no-entry \
- *   -s ALLOW_MEMORY_GROWTH=0 -s INITIAL_MEMORY=1048576 \
- *   -s ENVIRONMENT='node'
- *
- * This creates a .wasm + .js loader pair that can be imported in Node.js.
- */
+
 
 #include "toxic_engine.h"
 
-// ══════════════════════════════════════════════════════════════════════════════
-// SESSION POOL — Fixed array of sessions (no dynamic allocation)
-// ══════════════════════════════════════════════════════════════════════════════
+
+
+
 constexpr int MAX_SESSIONS = 64;
 static ToxicSession sessions[MAX_SESSIONS];
 static bool session_active[MAX_SESSIONS] = {};
 static AnalysisResult last_results[MAX_SESSIONS];
 
-// Shared quote buffer for cross-language marshalling
+
 static Quote shared_quote;
 
 extern "C" {
 
-// ── Session lifecycle ──────────────────────────────────────────────────────
+
 
 int create_session(int bar_size) {
     for (int i = 0; i < MAX_SESSIONS; i++) {
@@ -37,7 +25,7 @@ int create_session(int bar_size) {
             return i;
         }
     }
-    return -1; // No free slots
+    return -1; 
 }
 
 void init_session(int id, int bar_size) {
@@ -53,7 +41,7 @@ void destroy_session(int id) {
     }
 }
 
-// ── Quote input (field-by-field to avoid struct layout issues) ──────────
+
 
 void set_quote_ltp(double ltp) { shared_quote.ltp = ltp; }
 void set_quote_volume(int volume) { shared_quote.volume = volume; }
@@ -77,17 +65,17 @@ void reset_quote() {
     shared_quote = {};
 }
 
-// ── Process tick ────────────────────────────────────────────────────────
+
 
 int process_tick(int session_id) {
     if (session_id < 0 || session_id >= MAX_SESSIONS || !session_active[session_id]) {
         return -1;
     }
     last_results[session_id] = sessions[session_id].process_tick(shared_quote);
-    return 0; // success
+    return 0; 
 }
 
-// ── Result extraction (by field index to avoid struct marshalling) ──────
+
 
 double get_result_field(int session_id, int field) {
     if (session_id < 0 || session_id >= MAX_SESSIONS) return 0;
@@ -117,7 +105,7 @@ double get_result_field(int session_id, int field) {
     }
 }
 
-// ── History extraction for UI charts ────────────────────────────────────
+
 
 int get_volume_bar_count(int sid) {
     if (sid < 0 || sid >= MAX_SESSIONS) return 0;
@@ -176,4 +164,4 @@ int get_crash_count(int sid) {
     return sessions[sid].crash_history.size();
 }
 
-} // extern "C"
+} 
