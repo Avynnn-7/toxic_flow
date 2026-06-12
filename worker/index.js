@@ -1,18 +1,8 @@
-/**
- * Cloudflare Worker — Toxic Flow Detector
- *
- * Uses O(1) per-tick algorithms matching the C++ WASM engine:
- *   - EWMA for rolling averages
- *   - Welford's Online Algorithm for Kyle's Lambda
- *   - Recursive Hawkes kernel for trade clustering
- *   - Abramowitz-Stegun normal CDF for BVC
- *   - Online histogram for VPIN percentile
- *   - Calibrated logistic score fusion
- */
 
-// ══════════════════════════════════════════════════════════════════════════════
-// FAST MATH
-// ══════════════════════════════════════════════════════════════════════════════
+
+
+
+
 function normalCDF(z) {
   if (z < -8) return 0;
   if (z > 8) return 1;
@@ -20,14 +10,14 @@ function normalCDF(z) {
   const sign = z >= 0 ? 1 : -1, az = Math.abs(z);
   const t = 1/(1+p*az);
   const phi = 0.3989422804014327 * Math.exp(-0.5*az*az);
-  const cdf = 1 - phi*(a1*t+a2*t*t+a3*t*t*t+a4*t*t*t*t+a5*t*t*t*t*t);
+  const cdf = 1  phi*(a1*t+a2*t*t+a3*t*t*t+a4*t*t*t*t+a5*t*t*t*t*t);
   return 0.5*(1+sign*(2*cdf-1));
 }
 function clamp01(x) { return x<0?0:x>1?1:x; }
 
-// ══════════════════════════════════════════════════════════════════════════════
-// O(1) TOXIC ENGINE — mirrors C++ toxic_engine.h
-// ══════════════════════════════════════════════════════════════════════════════
+
+
+
 const EWMA_VPIN_A=2/51, EWMA_AMIHUD_A=2/51, EWMA_OFI_A=2/31;
 const WELFORD_D=0.98, H_MU=0.5, H_ALPHA=0.3, H_BETA=0.1;
 
@@ -52,7 +42,7 @@ class ToxicEngine {
     const t0 = Date.now();
     let buyVol=0, sellVol=0;
     if (this.lastQuote) {
-      const vd = Math.max(0, quote.volume - this.lastQuote.volume);
+      const vd = Math.max(0, quote.volume  this.lastQuote.volume);
       if (vd > 0) {
         const cm = (quote.depth?.buy?.[0]?.price && quote.depth?.sell?.[0]?.price)
           ? (quote.depth.buy[0].price+quote.depth.sell[0].price)/2 : quote.ltp;
@@ -64,7 +54,7 @@ class ToxicEngine {
       }
     }
 
-    // Volume bars
+    
     const total = buyVol+sellVol;
     if (!this.barAcc.totalVol) { this.barAcc.open=quote.ltp; this.barAcc.high=quote.ltp; this.barAcc.low=quote.ltp; }
     this.barAcc.high=Math.max(this.barAcc.high,quote.ltp);
@@ -97,7 +87,7 @@ class ToxicEngine {
 
     const vpin = this.ewmaVpin;
 
-    // OFI (EWMA)
+    
     let bq=0, aq=0;
     (quote.depth?.buy||[]).forEach(l => bq+=l.quantity||0);
     (quote.depth?.sell||[]).forEach(l => aq+=l.quantity||0);
@@ -108,7 +98,7 @@ class ToxicEngine {
     if (this.ofiHistory.length>=200) this.ofiHistory.shift();
     this.ofiHistory.push({ normalized:normOfi, bidQty:bq, askQty:aq });
 
-    // Kyle's Lambda (Welford)
+    
     let kyleLambda = 0;
     if (this.lastQuote) {
       const dp = quote.ltp-this.lastQuote.ltp;
@@ -123,7 +113,7 @@ class ToxicEngine {
       if (this.wN>=5 && this.wM2x>1e-10) kyleLambda=Math.abs(this.wCxy/this.wM2x);
     }
 
-    // Amihud (EWMA)
+    
     let amihud = 0;
     if (this.lastQuote && this.lastQuote.ltp>0) {
       const ret = Math.abs((quote.ltp-this.lastQuote.ltp)/this.lastQuote.ltp);
@@ -134,7 +124,7 @@ class ToxicEngine {
       amihud = this.ewmaAmihud;
     }
 
-    // Hawkes (recursive kernel)
+    
     let hawkes = 0;
     const ts = Date.now();
     if (!this.hawkesInit) { this.hawkesI=H_MU; this.hawkesTs=ts; this.hawkesInit=true; }
@@ -145,7 +135,7 @@ class ToxicEngine {
       hawkes = clamp01((this.hawkesI-H_MU)/(H_MU*3));
     }
 
-    // PIN (running accumulators)
+    
     let pin = 0;
     if (this.pinBC>=5) {
       const ab=this.pinSumB*(1-0.95), as=this.pinSumS*(1-0.95);
@@ -155,7 +145,7 @@ class ToxicEngine {
       pin = denom>0?(alpha*mu)/denom:0;
     }
 
-    // Spread
+    
     const bb=quote.depth?.buy?.[0]?.price||quote.ltp, ba=quote.depth?.sell?.[0]?.price||quote.ltp;
     const mid=(bb+ba)/2||quote.ltp;
     const spreadBps = mid>0?((ba-bb)/mid)*10000:0;
@@ -164,13 +154,13 @@ class ToxicEngine {
     (quote.depth?.sell||[]).forEach(l => askDepth+=(l.price||0)*(l.quantity||0));
     const depthImbalance = (bidDepth+askDepth>0)?(bidDepth-askDepth)/(bidDepth+askDepth):0;
 
-    // Toxic score (logistic fusion)
+    
     const v=clamp01(vpin/0.6), o=clamp01(Math.abs(this.ewmaOfi)/0.5), l=clamp01(kyleLambda/5);
     const a=clamp01(amihud/100), h=clamp01(hawkes), p=clamp01(pin/0.5), s=clamp01(spreadBps/50);
     const logit = -2.5+3.5*v+2.8*o+2.0*l+1.5*a+1.8*h+1.5*p+1.0*s;
     const toxicScore = Math.min(100, Math.max(0, Math.round(100/(1+Math.exp(-logit)))));
 
-    // Crash risk (histogram percentile)
+    
     let crashRisk = 0;
     if (this.histTotal>=5) {
       const vi = Math.min(31, Math.max(0, Math.floor(vpin*32)));
@@ -187,10 +177,10 @@ class ToxicEngine {
     if (this.crashHistory.length>=200) this.crashHistory.shift();
     this.scoreHistory.push(toxicScore); this.crashHistory.push(crashRisk);
 
-    // Recommendation
+    
     let recommendation;
     if (toxicScore<=25) recommendation={label:'SAFE',action:'Normal market conditions.',color:'#00d4aa',details:'Order flow is clean. Safe to trade.',toxicScore,crashRisk};
-    else if (toxicScore<=50) recommendation={label:'CAUTION',action:'Mixed signals detected.',color:'#ffaa00',details:`Flow shows ${this.ewmaOfi>0?'buying':'selling'} pressure. Reduce size.`,toxicScore,crashRisk};
+    else if (toxicScore<=50) recommendation={label:'CAUTION',action:'Mixed signals detected.',color:'#ffaa00',details:`Flow shows ${this.ewmaOfi>0?__STRING_de1b41d503a84604b7d5a9caa8a10296__:__STRING_44fa49da767d4884b3e027c72e55292b__} pressure. Reduce size.`,toxicScore,crashRisk};
     else if (toxicScore<=70) recommendation={label:'TOXIC',action:'Significant toxic flow.',color:'#ff6b35',details:`VPIN at ${(vpin*100).toFixed(1)}%. Avoid new positions.`,toxicScore,crashRisk};
     else if (toxicScore<=85) recommendation={label:'DANGER',action:'Extreme toxic flow. EXIT.',color:'#ff3b57',details:`PIN: ${(pin*100).toFixed(1)}%. Stop-loss slippage HIGH.`,toxicScore,crashRisk};
     else recommendation={label:'CRASH RISK',action:'CRITICAL: Flash crash conditions.',color:'#ff0040',details:'EXIT ALL. Do NOT buy the dip.',toxicScore,crashRisk};
@@ -214,9 +204,9 @@ class ToxicEngine {
   }
 }
 
-// ══════════════════════════════════════════════════════════════════════════════
-// UPSTOX API HELPERS
-// ══════════════════════════════════════════════════════════════════════════════
+
+
+
 const UPSTOX_BASE = 'https://api.upstox.com/v2';
 const INSTRUMENT_CACHE = new Map();
 
@@ -228,20 +218,20 @@ function getHeaders(token) {
 async function resolveInstrumentKey(symbol, exchange, token) {
   const cacheKey = `${symbol}:${exchange}`;
   if (INSTRUMENT_CACHE.has(cacheKey)) return INSTRUMENT_CACHE.get(cacheKey);
-  const exch = exchange === 'BSE_EQ' ? 'BSE' : 'NSE';
+  const exch = exchange  'BSE_EQ' ? 'BSE' : 'NSE';
   const url = `${UPSTOX_BASE}/instruments/search?query=${encodeURIComponent(symbol)}&exchanges=${exch}&segments=EQ&records=5`;
   const res = await fetch(url, { headers: getHeaders(token) });
   if (!res.ok) throw new Error(`Search failed: ${res.status}`);
   const json = await res.json();
   const results = json?.data || [];
-  const exact = results.find(i => i.trading_symbol?.toUpperCase() === symbol.toUpperCase());
+  const exact = results.find(i => i.trading_symbol?.toUpperCase()  symbol.toUpperCase());
   const key = (exact || results[0])?.instrument_key || `${exchange}|${symbol}`;
   INSTRUMENT_CACHE.set(cacheKey, key);
   return key;
 }
 
 async function fetchQuotes(instrumentKeys, token) {
-  const url = `${UPSTOX_BASE}/market-quote/quotes?instrument_key=${encodeURIComponent(instrumentKeys.join(','))}`;
+  const url = `${UPSTOX_BASE}/market-quote/quotes?instrument_key=${encodeURIComponent(instrumentKeys.join(__STRING_34c1e369ad7842eb9c12e8ad4e445843__))}`;
   const res = await fetch(url, { headers: getHeaders(token), signal: AbortSignal.timeout(4000) });
   if (!res.ok) throw new Error(`Upstox ${res.status}`);
   const json = await res.json();
@@ -266,8 +256,8 @@ function calibrateBarSize(volume) {
 
 async function searchInstruments(query, token, exchange) {
   let params = `query=${encodeURIComponent(query)}&segments=EQ&records=15`;
-  if (exchange === 'NSE' || exchange === 'NSE_EQ') params += '&exchanges=NSE';
-  else if (exchange === 'BSE' || exchange === 'BSE_EQ') params += '&exchanges=BSE';
+  if (exchange  'NSE' || exchange  'NSE_EQ') params += '&exchanges=NSE';
+  else if (exchange  'BSE' || exchange  'BSE_EQ') params += '&exchanges=BSE';
   const res = await fetch(`${UPSTOX_BASE}/instruments/search?${params}`, { headers: getHeaders(token) });
   if (!res.ok) return [];
   const json = await res.json();
@@ -277,9 +267,9 @@ async function searchInstruments(query, token, exchange) {
   }));
 }
 
-// ══════════════════════════════════════════════════════════════════════════════
-// SESSION MANAGER
-// ══════════════════════════════════════════════════════════════════════════════
+
+
+
 const engineSessions = new Map();
 function getOrCreateSession(instrumentKey) {
   if (!engineSessions.has(instrumentKey)) engineSessions.set(instrumentKey, { engine: new ToxicEngine(), barSize: 5000 });
@@ -298,9 +288,9 @@ function jsonResponse(data, status = 200) {
   });
 }
 
-// ══════════════════════════════════════════════════════════════════════════════
-// WEBSOCKET HANDLER
-// ══════════════════════════════════════════════════════════════════════════════
+
+
+
 function handleWebSocket(env) {
   const pair = new WebSocketPair();
   const [client, server] = Object.values(pair);
@@ -310,7 +300,7 @@ function handleWebSocket(env) {
   server.addEventListener('message', async (event) => {
     try {
       const msg = JSON.parse(event.data);
-      if (msg.type === 'subscribe') {
+      if (msg.type  'subscribe') {
         const token = env.UPSTOX_ACCESS_TOKEN;
         if (!token) { server.send(JSON.stringify({type:'error',message:'Token not configured'})); return; }
         const subscribed = [];
@@ -322,9 +312,9 @@ function handleWebSocket(env) {
           } catch (err) { server.send(JSON.stringify({type:'error',symbol:s.symbol,message:err.message})); }
         }
         server.send(JSON.stringify({type:'subscribed',symbols:subscribed}));
-      } else if (msg.type === 'poll') {
+      } else if (msg.type  'poll') {
         const token = env.UPSTOX_ACCESS_TOKEN;
-        if (!token || subscriptions.size===0) return;
+        if (!token || subscriptions.size0) return;
         const iks = [...subscriptions.values()].map(s => s.instrumentKey);
         const rawQuotes = await fetchQuotes(iks, token);
         for (const [symbol, sub] of subscriptions) {
@@ -332,7 +322,7 @@ function handleWebSocket(env) {
           if (!raw) continue;
           const quote = parseQuote(raw);
           const session = getOrCreateSession(sub.instrumentKey);
-          if (session.barSize===5000 && quote.volume>0) {
+          if (session.barSize5000 && quote.volume>0) {
             session.barSize = calibrateBarSize(quote.volume);
             session.engine.volumeBarSize = session.barSize;
           }
@@ -340,7 +330,7 @@ function handleWebSocket(env) {
           result.symbol=symbol; result.exchange=sub.exchange; result.volumeBarSize=session.barSize;
           server.send(JSON.stringify({type:'update',symbol,exchange:sub.exchange,data:result}));
         }
-      } else if (msg.type === 'unsubscribe') {
+      } else if (msg.type  'unsubscribe') {
         for (const sym of (msg.symbols||[])) subscriptions.delete(sym);
         server.send(JSON.stringify({type:'unsubscribed',symbols:msg.symbols}));
       }
@@ -351,14 +341,14 @@ function handleWebSocket(env) {
   return new Response(null, { status: 101, webSocket: client });
 }
 
-// ══════════════════════════════════════════════════════════════════════════════
-// REST API HANDLERS
-// ══════════════════════════════════════════════════════════════════════════════
+
+
+
 async function handleApi(url, env) {
   const token = env.UPSTOX_ACCESS_TOKEN;
   if (!token) return jsonResponse({success:false,error:'Token not configured'}, 500);
 
-  if (url.pathname === '/api/search') {
+  if (url.pathname  '/api/search') {
     const q = url.searchParams.get('q');
     const exchange = url.searchParams.get('exchange');
     if (!q) return jsonResponse({success:true,results:[]});
@@ -366,7 +356,7 @@ async function handleApi(url, env) {
     return jsonResponse({success:true,results});
   }
 
-  if (url.pathname === '/api/toxic-flow') {
+  if (url.pathname  '/api/toxic-flow') {
     const symbol = url.searchParams.get('symbol')||'RELIANCE';
     const exchange = url.searchParams.get('exchange')||'NSE_EQ';
     try {
@@ -376,29 +366,29 @@ async function handleApi(url, env) {
       if (!raw) return jsonResponse({success:false,error:'No quote data'}, 404);
       const quote = parseQuote(raw);
       const session = getOrCreateSession(ik);
-      if (session.barSize===5000 && quote.volume>0) { session.barSize=calibrateBarSize(quote.volume); session.engine.volumeBarSize=session.barSize; }
+      if (session.barSize5000 && quote.volume>0) { session.barSize=calibrateBarSize(quote.volume); session.engine.volumeBarSize=session.barSize; }
       const result = session.engine.process(quote);
       result.symbol=symbol; result.exchange=exchange; result.volumeBarSize=session.barSize; result.transport='http-poll';
       return jsonResponse(result);
     } catch(err) { return jsonResponse({success:false,error:err.message}, 500); }
   }
 
-  if (url.pathname === '/health') {
+  if (url.pathname  '/health') {
     return jsonResponse({status:'ok',engine:'js-o1-worker',sessions:engineSessions.size});
   }
 
   return jsonResponse({error:'Not found'}, 404);
 }
 
-// ══════════════════════════════════════════════════════════════════════════════
-// MAIN EXPORT
-// ══════════════════════════════════════════════════════════════════════════════
+
+
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
-    if (request.method === 'OPTIONS') return new Response(null, { headers: CORS_HEADERS });
-    if (request.headers.get('Upgrade') === 'websocket') return handleWebSocket(env);
-    if (url.pathname.startsWith('/api/') || url.pathname === '/health') return handleApi(url, env);
+    if (request.method  'OPTIONS') return new Response(null, { headers: CORS_HEADERS });
+    if (request.headers.get('Upgrade')  'websocket') return handleWebSocket(env);
+    if (url.pathname.startsWith('/api/') || url.pathname  '/health') return handleApi(url, env);
     try {
       const r = await env.ASSETS.fetch(request);
       if (r.status !== 404) return r;

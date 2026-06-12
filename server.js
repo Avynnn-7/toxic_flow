@@ -1,18 +1,4 @@
-/**
- * server.js — WebSocket Server for Toxic Flow Detector
- *
- * ARCHITECTURE (push-based, zero-poll):
- *   Upstox WebSocket (protobuf) → Server → C++ WASM Engine → Browser WebSocket
- *
- * FEATURES:
- *   1. Upstox WebSocket feed with protobuf decoding (push, not poll)
- *   2. C++ WASM toxic engine (O(1) per tick, <1μs)
- *   3. WebSocket broadcast to subscribed clients
- *   4. Keep-alive mechanism (prevents Render.com 15min sleep)
- *   5. REST API fallback for search + single quotes
- *
- * DEPLOY: Render.com (free tier, native WebSocket, no credit card)
- */
+
 
 import express from 'express';
 import { createServer } from 'http';
@@ -31,32 +17,32 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3001;
 const UPSTOX_BASE = 'https://api.upstox.com/v2';
 const UPSTOX_WS_AUTH = 'https://api.upstox.com/v3/feed/market-data-feed/authorize';
-const POLL_FALLBACK_MS = 500; // Fallback polling if WS fails
+const POLL_FALLBACK_MS = 500; 
 
-// ══════════════════════════════════════════════════════════════════════════════
-// PROTOBUF SCHEMA LOADER
-// ══════════════════════════════════════════════════════════════════════════════
+
+
+
 let FeedResponse = null;
 
 async function loadProtoSchema() {
   try {
     const root = await protobuf.load(join(__dirname, 'proto', 'MarketDataFeedV3.proto'));
     FeedResponse = root.lookupType('com.upstox.marketdatafeederv3udapi.rpc.proto.FeedResponse');
-    console.log('[Proto] ✅ MarketDataFeedV3 schema loaded');
+    console.log('[Proto]  MarketDataFeedV3 schema loaded');
     return true;
   } catch (err) {
-    console.error('[Proto] ❌ Failed to load proto schema:', err.message);
+    console.error('[Proto]  Failed to load proto schema:', err.message);
     return false;
   }
 }
 
-// ══════════════════════════════════════════════════════════════════════════════
-// EXPRESS APP
-// ══════════════════════════════════════════════════════════════════════════════
+
+
+
 const app = express();
 app.use(express.static(join(__dirname, 'dist')));
 
-// Health check / keep-alive endpoint
+
 app.get('/health', (_req, res) => {
   res.json({
     status: 'ok',
@@ -67,7 +53,7 @@ app.get('/health', (_req, res) => {
   });
 });
 
-// Search endpoint
+
 app.get('/api/search', async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   const { q, exchange } = req.query;
@@ -82,7 +68,7 @@ app.get('/api/search', async (req, res) => {
   }
 });
 
-// Single quote REST fallback
+
 app.get('/api/toxic-flow', async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   const symbol = req.query.symbol || 'RELIANCE';
@@ -94,7 +80,7 @@ app.get('/api/toxic-flow', async (req, res) => {
     const quote = await fetchQuoteWithDepth(instrumentKey, token);
     if (symbolState.has(`${symbol}:${exchange}`)) {
       const state = symbolState.get(`${symbol}:${exchange}`);
-      if (state.barSize === 5000 && quote.volume > 0) {
+      if (state.barSize  5000 && quote.volume > 0) {
         state.barSize = calibrateBarSize(quote.volume);
       }
     }
@@ -108,20 +94,20 @@ app.get('/api/toxic-flow', async (req, res) => {
   }
 });
 
-// SPA fallback (Express v5 named splat syntax)
+
 app.get('/{*splat}', (_req, res) => {
   res.sendFile(join(__dirname, 'dist', 'index.html'));
 });
 
-// ══════════════════════════════════════════════════════════════════════════════
-// HTTP + CLIENT WEBSOCKET SERVER
-// ══════════════════════════════════════════════════════════════════════════════
+
+
+
 const server = createServer(app);
 const wss = new WebSocketServer({ server, path: '/ws' });
 
-// ══════════════════════════════════════════════════════════════════════════════
-// SYMBOL SUBSCRIPTION MANAGER
-// ══════════════════════════════════════════════════════════════════════════════
+
+
+
 const symbolState = new Map();
 const instrumentKeyCache = new Map();
 
@@ -143,20 +129,20 @@ async function resolveAndCache(symbol, exchange) {
 }
 
 function safeSend(ws, data) {
-  if (ws.readyState === WebSocket.OPEN) {
+  if (ws.readyState  WebSocket.OPEN) {
     ws.send(JSON.stringify(data));
   }
 }
 
-// ══════════════════════════════════════════════════════════════════════════════
-// UPSTOX WEBSOCKET FEED — Push-based market data (protobuf)
-//
-// Architecture:
-//   1. Authorize: GET /feed/market-data-feed/authorize → get WS URL
-//   2. Connect: WebSocket to authorized URL
-//   3. Subscribe: Send subscription msg for instrument keys
-//   4. Receive: Decode protobuf binary → process through engine → broadcast
-// ══════════════════════════════════════════════════════════════════════════════
+
+
+
+
+
+
+
+
+
 let upstoxWs = null;
 let upstoxWsConnected = false;
 let upstoxReconnectTimer = null;
@@ -170,7 +156,7 @@ async function connectUpstoxWebSocket() {
   }
 
   try {
-    // Step 1: Authorize
+    
     const headers = getAuthHeaders();
     const authRes = await fetch(UPSTOX_WS_AUTH, { headers });
     if (!authRes.ok) {
@@ -183,7 +169,7 @@ async function connectUpstoxWebSocket() {
 
     console.log('[Upstox WS] Connecting to:', wsUrl.slice(0, 60) + '...');
 
-    // Step 2: Connect
+    
     upstoxWs = new WebSocket(wsUrl, {
       headers: { 'Accept': 'application/octet-stream' },
       followRedirects: true,
@@ -192,10 +178,10 @@ async function connectUpstoxWebSocket() {
     upstoxWs.binaryType = 'arraybuffer';
 
     upstoxWs.on('open', () => {
-      console.log('[Upstox WS] ✅ Connected — push-based feed active');
+      console.log('[Upstox WS]  Connected — push-based feed active');
       upstoxWsConnected = true;
 
-      // Re-subscribe all active instruments
+      
       if (upstoxSubscribedKeys.size > 0) {
         subscribeUpstoxInstruments([...upstoxSubscribedKeys]);
       }
@@ -213,7 +199,7 @@ async function connectUpstoxWebSocket() {
       console.log(`[Upstox WS] Disconnected (code: ${code})`);
       upstoxWsConnected = false;
       upstoxWs = null;
-      // Reconnect after delay
+      
       scheduleUpstoxReconnect();
     });
 
@@ -241,15 +227,15 @@ function scheduleUpstoxReconnect() {
 function subscribeUpstoxInstruments(instrumentKeys) {
   if (!upstoxWs || upstoxWs.readyState !== WebSocket.OPEN) return;
 
-  // Add to tracked set
+  
   for (const key of instrumentKeys) upstoxSubscribedKeys.add(key);
 
-  // Upstox V3 subscription format
+  
   const subscribeMsg = JSON.stringify({
     guid: 'toxic-flow-' + Date.now(),
     method: 'sub',
     data: {
-      mode: 'full_d5',  // Full depth (5 levels)
+      mode: 'full_d5',  
       instrumentKeys: instrumentKeys,
     },
   });
@@ -259,7 +245,7 @@ function subscribeUpstoxInstruments(instrumentKeys) {
 }
 
 function handleUpstoxMessage(rawData) {
-  // Try binary protobuf decode first
+  
   if (rawData instanceof ArrayBuffer || Buffer.isBuffer(rawData)) {
     if (FeedResponse) {
       try {
@@ -273,14 +259,14 @@ function handleUpstoxMessage(rawData) {
         }
         return;
       } catch (protoErr) {
-        // Might be text JSON, fall through
+        
       }
     }
   }
 
-  // Fallback: try JSON text
+  
   try {
-    const textData = typeof rawData === 'string' ? rawData : Buffer.from(rawData).toString('utf-8');
+    const textData = typeof rawData  'string' ? rawData : Buffer.from(rawData).toString('utf-8');
     const json = JSON.parse(textData);
     if (json.feeds) {
       for (const [instrumentKey, feed] of Object.entries(json.feeds)) {
@@ -288,19 +274,19 @@ function handleUpstoxMessage(rawData) {
       }
     }
   } catch {
-    // Neither protobuf nor JSON — ignore
+    
   }
 }
 
 function processUpstoxFeed(instrumentKey, feed) {
-  // Extract quote from feed structure
+  
   const ff = feed?.fullFeed?.marketFF || feed?.fullFeed?.indexFF;
   if (!ff) return;
 
   const ltpc = ff.ltpc || {};
   const marketLevel = ff.marketLevel?.bidAskQuote || [];
   const ohlcList = ff.marketOHLC?.ohlc || [];
-  const dayOhlc = ohlcList.find(o => o.interval === '1d') || ohlcList[0] || {};
+  const dayOhlc = ohlcList.find(o => o.interval  '1d') || ohlcList[0] || {};
 
   const quote = {
     ltp: ltpc.ltp || 0,
@@ -311,17 +297,17 @@ function processUpstoxFeed(instrumentKey, feed) {
     volume: Number(ff.vtt || dayOhlc.vol || 0),
     oi: ff.oi || 0,
     depth: {
-      buy: marketLevel.filter((_, i) => i % 2 === 0).slice(0, 5).map(q => ({
+      buy: marketLevel.filter((_, i) => i % 2  0).slice(0, 5).map(q => ({
         price: q.bidP || 0, quantity: Number(q.bidQ || 0),
       })),
-      sell: marketLevel.filter((_, i) => i % 2 === 0).slice(0, 5).map(q => ({
+      sell: marketLevel.filter((_, i) => i % 2  0).slice(0, 5).map(q => ({
         price: q.askP || 0, quantity: Number(q.askQ || 0),
       })),
     },
     timestamp: new Date().toISOString(),
   };
 
-  // If depth is structured differently in V3
+  
   if (marketLevel.length > 0 && !quote.depth.buy[0]?.price) {
     quote.depth.buy = marketLevel.slice(0, 5).map(q => ({
       price: q.bidP || q.bp || 0, quantity: Number(q.bidQ || q.bq || 0),
@@ -333,15 +319,15 @@ function processUpstoxFeed(instrumentKey, feed) {
 
   if (quote.ltp <= 0) return;
 
-  // Find all symbol states that use this instrument key
+  
   for (const [symKey, state] of symbolState) {
-    if (state.instrumentKey === instrumentKey && state.subscribers.size > 0) {
-      // Auto-calibrate
-      if (state.barSize === 5000 && quote.volume > 0) {
+    if (state.instrumentKey  instrumentKey && state.subscribers.size > 0) {
+      
+      if (state.barSize  5000 && quote.volume > 0) {
         state.barSize = calibrateBarSize(quote.volume);
       }
 
-      // Run engine
+      
       const result = processQuote(instrumentKey, quote, state.barSize);
       result.symbol = state.symbol;
       result.exchange = state.exchange;
@@ -349,7 +335,7 @@ function processUpstoxFeed(instrumentKey, feed) {
 
       state.lastData = result;
 
-      // Broadcast to subscribers
+      
       for (const client of state.subscribers) {
         safeSend(client, { type: 'update', symbol: state.symbol, exchange: state.exchange, data: result });
       }
@@ -357,9 +343,9 @@ function processUpstoxFeed(instrumentKey, feed) {
   }
 }
 
-// ══════════════════════════════════════════════════════════════════════════════
-// FALLBACK BATCH POLLING (when Upstox WS unavailable)
-// ══════════════════════════════════════════════════════════════════════════════
+
+
+
 let pollTimer = null;
 
 async function fetchBatchQuotes(instrumentKeys) {
@@ -392,13 +378,13 @@ function startPollFallback() {
   console.log(`[Poll] Starting fallback poll @ ${POLL_FALLBACK_MS}ms`);
 
   pollTimer = setInterval(async () => {
-    if (upstoxWsConnected) return; // WS is active, skip polling
+    if (upstoxWsConnected) return; 
 
     const activeSymbols = [];
     for (const [symKey, state] of symbolState) {
       if (state.subscribers.size > 0) activeSymbols.push({ symKey, ...state });
     }
-    if (activeSymbols.length === 0) return;
+    if (activeSymbols.length  0) return;
 
     try {
       const instrumentKeys = activeSymbols.map(s => s.instrumentKey);
@@ -409,7 +395,7 @@ function startPollFallback() {
         if (!rawQuote) continue;
 
         const quote = parseQuote(rawQuote);
-        if (sym.barSize === 5000 && quote.volume > 0) {
+        if (sym.barSize  5000 && quote.volume > 0) {
           sym.barSize = calibrateBarSize(quote.volume);
           const state = symbolState.get(sym.symKey);
           if (state) state.barSize = sym.barSize;
@@ -434,9 +420,9 @@ function startPollFallback() {
   }, POLL_FALLBACK_MS);
 }
 
-// ══════════════════════════════════════════════════════════════════════════════
-// CLIENT WEBSOCKET HANDLER
-// ══════════════════════════════════════════════════════════════════════════════
+
+
+
 let clientId = 0;
 
 async function subscribeClient(ws, symbol, exchange) {
@@ -456,12 +442,12 @@ async function subscribeClient(ws, symbol, exchange) {
     const state = symbolState.get(symKey);
     state.subscribers.add(ws);
 
-    // Subscribe on Upstox WebSocket
+    
     if (upstoxWsConnected) {
       subscribeUpstoxInstruments([instrumentKey]);
     }
 
-    // Send last known data immediately
+    
     if (state.lastData) {
       safeSend(ws, { type: 'update', symbol, exchange, data: state.lastData });
     }
@@ -515,7 +501,7 @@ wss.on('connection', (ws, req) => {
             if (ok) subscribed.push(s.symbol);
           }
           safeSend(ws, { type: 'subscribed', symbols: subscribed });
-          startPollFallback(); // Always have fallback ready
+          startPollFallback(); 
           break;
         }
 
@@ -528,17 +514,17 @@ wss.on('connection', (ws, req) => {
         }
 
         case 'poll': {
-          // Client-driven poll (for CF Workers compat)
-          // In WebSocket mode, this triggers an immediate fetch for all subscribed
+          
+          
           if (!upstoxWsConnected) {
-            // Manual polling when Upstox WS is down
+            
             const activeSymbols = [];
             for (const [symKey, state] of symbolState) {
               if (state.subscribers.has(ws)) {
                 activeSymbols.push({ symKey, ...state });
               }
             }
-            if (activeSymbols.length === 0) break;
+            if (activeSymbols.length  0) break;
 
             try {
               const instrumentKeys = activeSymbols.map(s => s.instrumentKey);
@@ -548,7 +534,7 @@ wss.on('connection', (ws, req) => {
                 const rawQuote = rawQuotes[sym.instrumentKey];
                 if (!rawQuote) continue;
                 const quote = parseQuote(rawQuote);
-                if (sym.barSize === 5000 && quote.volume > 0) {
+                if (sym.barSize  5000 && quote.volume > 0) {
                   sym.barSize = calibrateBarSize(quote.volume);
                 }
                 const result = processQuote(sym.instrumentKey, quote, sym.barSize);
@@ -587,7 +573,7 @@ wss.on('connection', (ws, req) => {
   ws.on('pong', () => { ws.isAlive = true; });
 });
 
-// Heartbeat
+
 setInterval(() => {
   wss.clients.forEach((ws) => {
     if (!ws.isAlive) return ws.terminate();
@@ -596,12 +582,12 @@ setInterval(() => {
   });
 }, 30000);
 
-// ══════════════════════════════════════════════════════════════════════════════
-// KEEP-ALIVE MECHANISM — Prevents Render.com 15-minute sleep
-// Pings own health endpoint every 14 minutes
-// ══════════════════════════════════════════════════════════════════════════════
+
+
+
+
 function startKeepAlive() {
-  const KEEP_ALIVE_MS = 14 * 60 * 1000; // 14 minutes
+  const KEEP_ALIVE_MS = 14 * 60 * 1000; 
 
   setInterval(async () => {
     try {
@@ -609,43 +595,43 @@ function startKeepAlive() {
       await fetch(`${url}/health`, { signal: AbortSignal.timeout(5000) });
       console.log('[Keep-Alive] Ping sent');
     } catch {
-      // Self-ping to localhost as fallback
+      
       try {
         await fetch(`http://localhost:${PORT}/health`, { signal: AbortSignal.timeout(3000) });
-      } catch { /* ignore */ }
+      } catch {  }
     }
   }, KEEP_ALIVE_MS);
 }
 
-// ══════════════════════════════════════════════════════════════════════════════
-// STARTUP
-// ══════════════════════════════════════════════════════════════════════════════
-async function startup() {
-  // 1. Load WASM engine
-  const wasmOk = await initEngine();
-  console.log(`[Engine] ${wasmOk ? '✅ C++ WASM' : '⚡ JS O(1) fallback'} engine active`);
 
-  // 2. Load protobuf schema
+
+
+async function startup() {
+  
+  const wasmOk = await initEngine();
+  console.log(`[Engine] ${wasmOk ? __STRING_886c155a3ea6437aa001189c74f3ef40__ : __STRING_497ff162a11e4fae98f05aa21f575217__} engine active`);
+
+  
   await loadProtoSchema();
 
-  // 3. Start HTTP server
+  
   server.listen(PORT, () => {
     console.log(`
 ╔═══════════════════════════════════════════════════════════════╗
-║  🛡️  Toxic Flow Detector — WebSocket Server                   ║
+║  ️  RIFT: Real time informed Flow Tracker — WebSocket Server                   ║
 ║  http://localhost:${PORT}                                        ║
 ║  WebSocket: ws://localhost:${PORT}/ws                             ║
-║  Engine: ${(wasmOk ? 'C++ WASM (O(1) per tick)' : 'JS O(1) Fallback').padEnd(42)}  ║
+║  Engine: ${(wasmOk ? __STRING_5a23e621952b409f9edd09a25ca570d5__ : __STRING_6c8d7b2f75c649b1b3d5a89d9e748c86__).padEnd(42)}  ║
 ║  Feed: Upstox WebSocket (protobuf push)                       ║
 ║  Keep-Alive: Active (14-min ping)                             ║
 ╚═══════════════════════════════════════════════════════════════╝
 `);
   });
 
-  // 4. Connect to Upstox WebSocket
+  
   setTimeout(() => connectUpstoxWebSocket(), 1000);
 
-  // 5. Start keep-alive
+  
   startKeepAlive();
 }
 
